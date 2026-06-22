@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parallels-mcp"
+version = "0.1.0"
+description = "MCP server for Parallels Desktop VM lifecycle control via prlctl"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4",
+]
+
+[project.scripts]
+parallels-mcp = "server:main"
+
+[tool.setuptools]
+py-modules = ["server"]

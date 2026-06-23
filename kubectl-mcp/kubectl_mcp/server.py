@@ -5,16 +5,11 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 
-KUBECONFIG = os.getenv("KUBECONFIG", "")
-
 mcp = FastMCP("kubectl")
 
 
 def _env() -> dict[str, str]:
-    env = os.environ.copy()
-    if KUBECONFIG:
-        env["KUBECONFIG"] = KUBECONFIG
-    return env
+    return os.environ.copy()
 
 
 async def _run(cmd: list[str], timeout: int = 60) -> str:
@@ -28,6 +23,7 @@ async def _run(cmd: list[str], timeout: int = 60) -> str:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
+        await proc.wait()
         return f"[timeout after {timeout}s]"
     return stdout.decode(errors="replace").strip()
 

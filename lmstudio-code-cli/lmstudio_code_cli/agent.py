@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 from openai import OpenAI, APIConnectionError, APIStatusError
 
 from .attachments import Attachment
@@ -54,7 +55,29 @@ Rules:
 - Make minimal, targeted edits — do not rewrite files unless asked.
 - When a tool returns an error, diagnose and fix the root cause.
 
+Testing (mandatory):
+- Always write tests when writing new code — in the same response, not as a follow-up.
+- When fixing a bug, write a regression test that fails before the fix and passes after.
+- Run the test suite with run_bash after every change and report the result.
+  Use the right runner for the language:
+    Python      → uv run pytest  (or python -m pytest)
+    Go          → go test ./...
+    Rust        → cargo test
+    JavaScript  → npm test  (or npx jest / npx vitest)
+    TypeScript  → same as JavaScript
+    Swift       → swift test
+    Kotlin      → ./gradlew test
+- Never say "you should add tests" or "tests are left as an exercise" — write them now.
+
 Working directory: {cwd}"""
+
+
+def _load_claude_md(cwd: str) -> str:
+    """Read CLAUDE.md from the working directory if present."""
+    try:
+        return (Path(cwd) / "CLAUDE.md").read_text()
+    except OSError:
+        return ""
 
 
 class Agent:
@@ -64,6 +87,7 @@ class Agent:
         self.client = OpenAI(base_url=config.base_url, api_key=config.api_key)
         self.history: list[dict] = []
         self.model = config.model or self._detect_model()
+        self._claude_md = _load_claude_md(config.cwd)
 
         # Merge built-in tools + MCP tools into one list for the LLM
         self._tools = list(ALL_TOOLS)
@@ -147,7 +171,10 @@ class Agent:
         return models[0].id
 
     def _system_message(self) -> dict:
-        return {"role": "system", "content": _SYSTEM_PROMPT.format(cwd=self.config.cwd)}
+        content = _SYSTEM_PROMPT.format(cwd=self.config.cwd)
+        if self._claude_md:
+            content += f"\n\n## Project instructions (CLAUDE.md)\n\n{self._claude_md}"
+        return {"role": "system", "content": content}
 
     def _call_llm(self) -> tuple[dict, list[dict]] | None:
         ui.print_agent_indicator()

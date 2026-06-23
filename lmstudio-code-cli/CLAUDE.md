@@ -7,17 +7,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```sh
 # Install / sync dependencies
 uv sync
+uv sync --extra dev   # includes pytest
 
 # Run the CLI
 uv run lmstudio-code-cli
 uv run lmstudio-code-cli --help
+
+# Test
+uv run pytest
 
 # Lint
 uv run ruff check lmstudio_code_cli/
 uv run ruff format lmstudio_code_cli/
 ```
 
-There are no automated tests. Verify changes by running the CLI directly against a live LM Studio instance.
+## Test structure
+
+Tests live in `tests/` and cover the four testable modules without requiring a
+live LM Studio instance:
+
+- `tests/test_config.py` — `MCPConfig.from_mcp_json`, `Config.from_env`
+- `tests/test_attachments.py` — `parse()`, `Attachment.to_openai()`
+- `tests/test_tools.py` — all seven built-in tool implementations
+- `tests/test_mcp_client.py` — `MCPTool.to_openai()`, `_parse_sse()`, `owns()`, `call_tool()`
+
+`agent.py`, `main.py`, and `ui.py` are not unit-tested — they depend on a live
+LM Studio stream. Verify those by running the CLI directly.
 
 ## Architecture
 

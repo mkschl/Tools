@@ -21,6 +21,7 @@ async def _run(cmd: list[str], timeout: int = 60) -> str:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
+        await proc.wait()
         return f"[timeout after {timeout}s]"
     return stdout.decode(errors="replace").strip()
 
@@ -40,7 +41,7 @@ async def parallels_list() -> str:
             uid = vm.get("uuid", "")
             lines.append(f"{name:<40} {status:<12} {os_ver:<20} {uid}")
         return "\n".join(lines)
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, TypeError, AttributeError):
         return output
 
 

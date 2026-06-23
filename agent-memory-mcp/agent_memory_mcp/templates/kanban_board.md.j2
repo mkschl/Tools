@@ -1,0 +1,38 @@
+# {{ title }}
+
+{% for col in columns %}
+## {{ col.name }}
+
+{% for card in col.cards %}
+### {{ card.title }}
+{% if card.due or card.tags or card.priority or card.extra_meta or card.description %}
+
+{% if card.due %}
+  - due: {{ card.due }}
+{% endif %}
+{% if card.tags %}
+  - tags: [{{ card.tags | join(', ') }}]
+{% endif %}
+{% if card.priority %}
+  - priority: {{ card.priority }}
+{% endif %}
+{% for line in card.extra_meta %}
+{{ line }}
+{% endfor %}
+{% if card.steps %}
+  - steps:
+{% for step in card.steps %}
+      - {{ step }}
+{% endfor %}
+{% endif %}
+{% if card.description %}
+    ```md
+{{ card.description | indent(4, first=True) }}
+    ```
+{% endif %}
+
+{% else %}
+
+{% endif %}
+{% endfor %}
+{% endfor %}

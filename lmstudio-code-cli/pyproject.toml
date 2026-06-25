@@ -13,6 +13,7 @@ dependencies = [
     "rich>=13.9",
     "prompt_toolkit>=3.0",
     "click>=8.1",
+    "questionary>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,9 @@ lmstudio-code-cli = "lmstudio_code_cli.main:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["lmstudio_code_cli*"]
+
+[tool.setuptools.package-data]
+lmstudio_code_cli = ["themes/*.toml"]
 
 [tool.pytest.ini_options]
 # no asyncio needed — all tools are synchronous

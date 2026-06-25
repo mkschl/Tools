@@ -236,6 +236,77 @@ def test_glob_files_recursive(tmp_path):
     assert "deep.py" in result
 
 
+# ── run_bash (additional) ──────────────────────────────────────────────────────
+
+def test_run_bash_includes_both_stdout_and_stderr(tmp_path):
+    result = execute_tool(
+        "run_bash",
+        {"command": "echo out && echo err >&2"},
+        str(tmp_path),
+    )
+    assert "out" in result
+    assert "err" in result
+
+
+def test_run_bash_empty_output_returns_exit_code(tmp_path):
+    result = execute_tool("run_bash", {"command": "true"}, str(tmp_path))
+    assert "0" in result
+
+
+def test_run_bash_uses_working_directory(tmp_path):
+    (tmp_path / "marker.txt").touch()
+    result = execute_tool("run_bash", {"command": "ls marker.txt"}, str(tmp_path))
+    assert "marker.txt" in result
+
+
+# ── write_file (additional) ────────────────────────────────────────────────────
+
+def test_write_file_reports_byte_and_line_count(tmp_path):
+    result = execute_tool(
+        "write_file",
+        {"path": "out.txt", "content": "line1\nline2\nline3\n"},
+        str(tmp_path),
+    )
+    assert "18" in result  # byte count
+    assert "3" in result   # line count
+
+
+# ── edit_file (additional) ─────────────────────────────────────────────────────
+
+def test_edit_file_replaces_multiline_block(tmp_path):
+    f = tmp_path / "code.py"
+    f.write_text("def foo():\n    return 1\n")
+    result = execute_tool(
+        "edit_file",
+        {"path": str(f), "old_string": "def foo():\n    return 1", "new_string": "def foo():\n    return 42"},
+        str(tmp_path),
+    )
+    assert "Successfully" in result
+    assert f.read_text() == "def foo():\n    return 42\n"
+
+
+# ── list_directory (additional) ────────────────────────────────────────────────
+
+def test_list_directory_shows_dirs_before_files(tmp_path):
+    (tmp_path / "afile.txt").touch()
+    (tmp_path / "zsubdir").mkdir()
+    result = execute_tool("list_directory", {"path": str(tmp_path)}, str(tmp_path))
+    dir_pos = result.index("zsubdir/")
+    file_pos = result.index("afile.txt")
+    assert dir_pos < file_pos
+
+
+# ── glob_files (additional) ────────────────────────────────────────────────────
+
+def test_glob_files_missing_base_path_returns_no_files(tmp_path):
+    result = execute_tool(
+        "glob_files",
+        {"pattern": "*.py", "path": str(tmp_path / "nonexistent")},
+        str(tmp_path),
+    )
+    assert "no files" in result
+
+
 # ── unknown tool ───────────────────────────────────────────────────────────────
 
 def test_execute_tool_unknown_name_returns_error(tmp_path):

@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from lmstudio_code_cli.mcp_client import MCPGatewayClient, MCPTool
 
@@ -141,3 +141,73 @@ def test_call_tool_multiple_text_items_joined():
         result = client.call_tool("multi", {})
         assert "part one" in result
         assert "part two" in result
+
+
+def test_call_tool_non_dict_content_item_stringified():
+    client = _make_client()
+    with patch.object(client, "_request", return_value={"content": ["raw string"]}):
+        result = client.call_tool("t", {})
+        assert "raw string" in result
+
+
+# ── MCPGatewayClient.to_openai_tools ──────────────────────────────────────────
+
+def test_to_openai_tools_returns_list_for_all_tools():
+    tools = [MCPTool("a", "desc a", {}), MCPTool("b", "desc b", {"type": "object"})]
+    client = _make_client(tools=tools)
+    result = client.to_openai_tools()
+    assert len(result) == 2
+    names = {r["function"]["name"] for r in result}
+    assert names == {"a", "b"}
+
+
+def test_to_openai_tools_empty_when_no_tools():
+    client = _make_client(tools=[])
+    assert client.to_openai_tools() == []
+
+
+# ── MCPGatewayClient._parse_response ──────────────────────────────────────────
+
+def _make_resp(status=200, content_type="application/json", json_data=None, text="", content=b"x"):
+    resp = MagicMock()
+    resp.status_code = status
+    resp.content = content
+    resp.headers = {"content-type": content_type}
+    resp.json.return_value = json_data or {}
+    resp.text = text
+    resp.request = MagicMock()
+    resp.request.content = b'{"method": "tools/list"}'
+    return resp
+
+
+def test_parse_response_returns_empty_on_202():
+    client = _make_client()
+    resp = _make_resp(status=202, content=b"")
+    assert client._parse_response(resp) == {}
+
+
+def test_parse_response_returns_empty_on_no_content():
+    client = _make_client()
+    resp = _make_resp(content=b"")
+    assert client._parse_response(resp) == {}
+
+
+def test_parse_response_extracts_result_from_json():
+    client = _make_client()
+    resp = _make_resp(json_data={"result": {"tools": []}})
+    assert client._parse_response(resp) == {"tools": []}
+
+
+def test_parse_response_extracts_result_from_sse():
+    client = _make_client()
+    sse_body = 'data: {"jsonrpc":"2.0","result":{"ok":true}}\n'
+    resp = _make_resp(content_type="text/event-stream", text=sse_body)
+    assert client._parse_response(resp) == {"ok": True}
+
+
+def test_parse_response_raises_on_error_in_envelope():
+    client = _make_client()
+    resp = _make_resp(json_data={"error": {"code": -32600, "message": "Invalid request"}})
+    import pytest
+    with pytest.raises(RuntimeError, match="Invalid request"):
+        client._parse_response(resp)

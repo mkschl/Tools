@@ -15,7 +15,6 @@ def _format_api_error(exc: APIStatusError, base_url: str, model: str) -> str:
     lines.append(f"  endpoint : {base_url}/chat/completions")
     lines.append(f"  model    : {model}")
 
-    # Try to extract and pretty-print a JSON validation error array
     body = exc.body or {}
     raw = body.get("error", exc.message) if isinstance(body, dict) else exc.message
     try:
@@ -89,10 +88,8 @@ class Agent:
         self.model = config.model or self._detect_model()
         self._claude_md = _load_claude_md(config.cwd)
 
-        # Merge built-in tools + MCP tools into one list for the LLM
+        # Start with built-ins only; MCP tools are added on demand via enable_mcp_tools()
         self._tools = list(ALL_TOOLS)
-        if mcp:
-            self._tools.extend(mcp.to_openai_tools())
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -104,6 +101,61 @@ class Agent:
 
     def clear_history(self) -> None:
         self.history.clear()
+
+    def pop_last_user_message(self) -> str | None:
+        """Remove the last user turn and everything after it. Returns the message text."""
+        for i in range(len(self.history) - 1, -1, -1):
+            if self.history[i]["role"] == "user":
+                content = self.history[i]["content"]
+                self.history = self.history[:i]
+                if isinstance(content, str):
+                    return content
+                return next(
+                    (p["text"] for p in content if isinstance(p, dict) and p.get("type") == "text"),
+                    "",
+                )
+        return None
+
+    def save_history(self, path: str) -> None:
+        Path(path).write_text(json.dumps(self.history, indent=2))
+
+    def load_history(self, path: str) -> int:
+        """Load history from a JSON file. Returns the number of messages loaded."""
+        self.history = json.loads(Path(path).read_text())
+        return len(self.history)
+
+    @property
+    def estimated_tokens(self) -> int:
+        """Rough token estimate for current history (4 chars ≈ 1 token)."""
+        chars = 0
+        for msg in self.history:
+            content = msg.get("content") or ""
+            if isinstance(content, str):
+                chars += len(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        chars += len(str(part.get("text", "")))
+        return chars // 4
+
+    def enable_mcp_tools(self, prefixes: list[str]) -> int:
+        """Replace active MCP tools with those matching any prefix substring. Returns count added."""
+        if not self.mcp:
+            return 0
+        all_mcp_names = {t.name for t in self.mcp.tools}
+        self._tools = [t for t in self._tools if t["function"]["name"] not in all_mcp_names]
+        if not prefixes:
+            return 0
+        matching = [t for t in self.mcp.tools if any(p in t.name for p in prefixes)]
+        self._tools.extend(t.to_openai() for t in matching)
+        return len(matching)
+
+    def active_mcp_tool_names(self) -> set[str]:
+        """Names of MCP tools currently injected into the active tool list."""
+        if not self.mcp:
+            return set()
+        all_mcp_names = {t.name for t in self.mcp.tools}
+        return {t["function"]["name"] for t in self._tools if t["function"]["name"] in all_mcp_names}
 
     def chat(self, user_message: str, attachments: list[Attachment] | None = None) -> None:
         if attachments:
@@ -202,7 +254,7 @@ class Agent:
 
         text_parts: list[str] = []
         pending_tool_calls: dict[int, dict] = {}
-        first_output = True
+        indicator_ended = False
 
         try:
             for chunk in stream:
@@ -211,16 +263,12 @@ class Agent:
                 delta = chunk.choices[0].delta
 
                 if delta.content:
-                    if first_output:
-                        ui.end_indicator()
-                        first_output = False
-                    ui.stream_chunk(delta.content)
                     text_parts.append(delta.content)
 
                 if delta.tool_calls:
-                    if first_output:
+                    if not indicator_ended:
                         ui.end_indicator()
-                        first_output = False
+                        indicator_ended = True
                     for tc in delta.tool_calls:
                         slot = pending_tool_calls.setdefault(
                             tc.index,
@@ -235,15 +283,18 @@ class Agent:
                                 slot["function"]["arguments"] += tc.function.arguments
 
         except KeyboardInterrupt:
+            if not indicator_ended:
+                ui.end_indicator()
             if text_parts:
-                ui.end_stream()
+                ui.render_response("".join(text_parts))
             ui.print_info("Interrupted.")
             return None
 
-        if text_parts:
-            ui.end_stream()
-        elif first_output:
+        if not indicator_ended:
             ui.end_indicator()
+
+        if text_parts:
+            ui.render_response("".join(text_parts))
 
         tool_calls_list = list(pending_tool_calls.values())
         message: dict = {"role": "assistant"}

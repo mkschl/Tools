@@ -30,7 +30,7 @@ where = ["."]
 include = ["lmstudio_code_cli*"]
 
 [tool.setuptools.package-data]
-lmstudio_code_cli = ["themes/*.toml"]
+lmstudio_code_cli = ["defaults.toml", "themes/*.toml"]
 
 [tool.pytest.ini_options]
 # no asyncio needed — all tools are synchronous

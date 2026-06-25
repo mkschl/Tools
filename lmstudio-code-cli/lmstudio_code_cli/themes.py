@@ -1,7 +1,9 @@
 import tomllib
 from pathlib import Path
 
-DEFAULT_THEME = "one-dark"
+from .defaults import DEFAULTS
+
+DEFAULT_THEME: str = DEFAULTS["theme"]
 
 _themes_dir = Path(__file__).parent / "themes"
 

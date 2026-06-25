@@ -3,6 +3,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .defaults import DEFAULTS
+
 
 @dataclass
 class MCPConfig:
@@ -29,18 +31,18 @@ class MCPConfig:
 
 @dataclass
 class Config:
-    base_url: str = "http://localhost:1234/v1"
-    api_key: str = "lm-studio"
+    base_url: str = field(default_factory=lambda: DEFAULTS["url"])
+    api_key: str = field(default_factory=lambda: DEFAULTS["api_key"])
     model: str = ""
     cwd: str = field(default_factory=os.getcwd)
-    max_tokens: int = 32768
+    max_tokens: int = field(default_factory=lambda: DEFAULTS["max_tokens"])
     mcp: MCPConfig | None = None
 
     @classmethod
     def from_env(cls) -> "Config":
         return cls(
-            base_url=os.environ.get("LMSTUDIO_URL", "http://localhost:1234/v1"),
-            api_key=os.environ.get("LMSTUDIO_API_KEY", "lm-studio"),
+            base_url=os.environ.get("LMSTUDIO_URL", DEFAULTS["url"]),
+            api_key=os.environ.get("LMSTUDIO_API_KEY", DEFAULTS["api_key"]),
             model=os.environ.get("LMSTUDIO_MODEL", ""),
-            max_tokens=int(os.environ.get("LMSTUDIO_MAX_TOKENS", "32768")),
+            max_tokens=int(os.environ.get("LMSTUDIO_MAX_TOKENS", DEFAULTS["max_tokens"])),
         )

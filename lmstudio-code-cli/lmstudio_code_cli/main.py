@@ -10,6 +10,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
 from .attachments import parse as parse_attachments
+from .defaults import DEFAULTS
 
 _CONFIG_PATH = Path.home() / ".lmstudio-code-cli.toml"
 
@@ -58,13 +59,14 @@ def _make_session(history_path: Path, agent: Agent) -> PromptSession:
         prompt_continuation=lambda _width, _line, _wrap: "  ",
     )
 
-_HELP_TEXT = """\
+_HELP_TEXT = f"""\
 [bold]Slash commands[/bold]
   [cmd]/clear[/cmd]           — Clear conversation history
+  [cmd]/cls[/cmd]             — Clear the terminal screen
   [cmd]/retry[/cmd]           — Remove last exchange and resend the message
   [cmd]/undo[/cmd]            — Remove last exchange without resending
-  [cmd]/save [file][/cmd]     — Save conversation history (default: conversation.json)
-  [cmd]/load [file][/cmd]     — Load conversation history (default: conversation.json)
+  [cmd]/save [file][/cmd]     — Save conversation history (default: {DEFAULTS['conversation_file']})
+  [cmd]/load [file][/cmd]     — Load conversation history (default: {DEFAULTS['conversation_file']})
   [cmd]/model [id][/cmd]      — Switch model interactively, or directly with an id
   [cmd]/models[/cmd]          — List models loaded in LM Studio
   [cmd]/theme [name][/cmd]    — Switch color theme interactively, or directly with a name
@@ -85,15 +87,15 @@ _HELP_TEXT = """\
 
 @click.command()
 @click.option("--url", envvar="LMSTUDIO_URL", default=None,
-              show_envvar=True, help="LM Studio API base URL (default: http://localhost:1234/v1)")
-@click.option("--api-key", envvar="LMSTUDIO_API_KEY", default="lm-studio",
+              show_envvar=True, help=f"LM Studio API base URL (default: {DEFAULTS['url']})")
+@click.option("--api-key", envvar="LMSTUDIO_API_KEY", default=DEFAULTS["api_key"],
               show_default=True, show_envvar=True, help="LM Studio API key")
 @click.option("--model", envvar="LMSTUDIO_MODEL", default=None,
               show_envvar=True, help="Model ID (auto-detects first loaded model if omitted)")
 @click.option("--cwd", "working_dir", default=None,
               help="Working directory for tool operations (default: current directory)")
 @click.option("--max-tokens", envvar="LMSTUDIO_MAX_TOKENS", default=None,
-              show_envvar=True, type=int, help="Max tokens per response (default: 8192)")
+              show_envvar=True, type=int, help=f"Max tokens per response (default: {DEFAULTS['max_tokens']})")
 @click.option("--mcp-url", envvar="LMSTUDIO_MCP_URL", default="",
               show_envvar=True, help="MCP gateway URL (overrides .mcp.json)")
 @click.option("--mcp-token", envvar="LMSTUDIO_MCP_TOKEN", default="",
@@ -116,10 +118,10 @@ def cli(
     cwd = os.path.abspath(working_dir) if working_dir else os.getcwd()
 
     cfg = _load_config()
-    resolved_url = url or cfg.get("url", "http://localhost:1234/v1")
+    resolved_url = url or cfg.get("url", DEFAULTS["url"])
     resolved_model = model or cfg.get("model", "")
-    resolved_max_tokens = max_tokens if max_tokens is not None else cfg.get("max_tokens", 8192)
-    resolved_theme = theme or cfg.get("theme", ui.DEFAULT_THEME)
+    resolved_max_tokens = max_tokens if max_tokens is not None else cfg.get("max_tokens", DEFAULTS["max_tokens"])
+    resolved_theme = theme or cfg.get("theme", DEFAULTS["theme"])
 
     # Persist any values that were explicitly provided via CLI/env
     updates = {k: v for k, v in {
@@ -166,7 +168,7 @@ def cli(
     agent = Agent(config, mcp=mcp_client)
     ui.print_welcome(agent.model, config.base_url, config.cwd, mcp_client)
 
-    history_path = Path.home() / ".lmstudio-code-cli-history"
+    history_path = Path.home() / DEFAULTS["history_file"]
     session = _make_session(history_path, agent)
 
     while True:
@@ -301,6 +303,10 @@ def _handle_slash(text: str, agent: Agent, session: "PromptSession | None" = Non
         case "/exit" | "/quit":
             ui.print_info("Bye!")
 
+        case "/cls":
+            click.clear()
+            ui.print_welcome(agent.model, agent.config.base_url, agent.config.cwd)
+
         case "/clear":
             agent.clear_history()
             ui.print_info("Conversation cleared.")
@@ -320,7 +326,7 @@ def _handle_slash(text: str, agent: Agent, session: "PromptSession | None" = Non
                 ui.print_error("Nothing to undo.")
 
         case "/save":
-            path = arg or "conversation.json"
+            path = arg or DEFAULTS["conversation_file"]
             try:
                 agent.save_history(path)
                 ui.print_info(f"Saved {len(agent.history)} messages to {path}")
@@ -328,7 +334,7 @@ def _handle_slash(text: str, agent: Agent, session: "PromptSession | None" = Non
                 ui.print_error(f"Could not save: {exc}")
 
         case "/load":
-            path = arg or "conversation.json"
+            path = arg or DEFAULTS["conversation_file"]
             try:
                 count = agent.load_history(path)
                 ui.print_info(f"Loaded {count} messages from {path}")

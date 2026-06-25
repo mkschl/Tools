@@ -1,0 +1,14 @@
+# Default values for lmstudio-code-cli
+# Override any of these via CLI flags, environment variables, or ~/.lmstudio-code-cli.toml
+
+# LM Studio API
+url        = "http://localhost:1234/v1"
+api_key    = "lm-studio"
+max_tokens = 32768
+
+# UI
+theme = "one-dark"
+
+# Files
+history_file      = ".lmstudio-code-cli-history"
+conversation_file = "conversation.json"

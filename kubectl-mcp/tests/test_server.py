@@ -6,9 +6,12 @@ from kubectl_mcp.server import (
     _run,
     kubectl_apply,
     kubectl_delete_job,
+    kubectl_delete_pods,
+    kubectl_exec,
     kubectl_get,
     kubectl_logs,
     kubectl_nodes,
+    kubectl_rollout_restart,
     kubectl_top,
 )
 
@@ -172,3 +175,75 @@ async def test_kubectl_apply_passes_manifest_path_and_namespace():
         assert "/tmp/deploy.yaml" in cmd
         assert "-n" in cmd
         assert "staging" in cmd
+
+
+# ── kubectl_exec ───────────────────────────────────────────────────────────────
+
+async def test_kubectl_exec_requires_confirm():
+    result = await kubectl_exec("my-pod", ["echo", "hi"], confirm=False)
+    assert "confirm=true" in result
+
+
+async def test_kubectl_exec_calls_kubectl_with_correct_args():
+    with patch("kubectl_mcp.server._run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "hi"
+        await kubectl_exec("my-pod", ["echo", "hi"], namespace="prod", confirm=True)
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["kubectl", "exec", "my-pod", "-n", "prod", "--", "echo", "hi"]
+
+
+async def test_kubectl_exec_with_container():
+    with patch("kubectl_mcp.server._run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "hi"
+        await kubectl_exec("my-pod", ["echo", "hi"], container="sidecar", confirm=True)
+        cmd = mock_run.call_args[0][0]
+        assert "-c" in cmd
+        assert "sidecar" in cmd
+
+
+# ── kubectl_rollout_restart ──────────────────────────────────────────────────────
+
+async def test_kubectl_rollout_restart_requires_confirm():
+    result = await kubectl_rollout_restart("deployment", "my-app", confirm=False)
+    assert "confirm=true" in result
+
+
+async def test_kubectl_rollout_restart_calls_kubectl_with_correct_args():
+    with patch("kubectl_mcp.server._run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "restarted"
+        await kubectl_rollout_restart("deployment", "my-app", namespace="prod", confirm=True)
+        mock_run.assert_called_once_with(
+            ["kubectl", "rollout", "restart", "deployment", "my-app", "-n", "prod"]
+        )
+
+
+# ── kubectl_delete_pods ──────────────────────────────────────────────────────────
+
+async def test_kubectl_delete_pods_requires_confirm():
+    result = await kubectl_delete_pods(name="my-pod", confirm=False)
+    assert "confirm=true" in result
+
+
+async def test_kubectl_delete_pods_requires_exactly_one_of_name_or_selector():
+    result = await kubectl_delete_pods(confirm=True)
+    assert "Exactly one" in result
+
+    result = await kubectl_delete_pods(name="my-pod", label_selector="app=my-app", confirm=True)
+    assert "Exactly one" in result
+
+
+async def test_kubectl_delete_pods_by_name():
+    with patch("kubectl_mcp.server._run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "deleted"
+        await kubectl_delete_pods(name="my-pod", namespace="prod", confirm=True)
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["kubectl", "delete", "pod", "-n", "prod", "my-pod"]
+
+
+async def test_kubectl_delete_pods_by_label_selector():
+    with patch("kubectl_mcp.server._run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "deleted"
+        await kubectl_delete_pods(label_selector="app=my-app", confirm=True)
+        cmd = mock_run.call_args[0][0]
+        assert "-l" in cmd
+        assert "app=my-app" in cmd

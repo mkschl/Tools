@@ -122,6 +122,60 @@ async def kubectl_apply(
     return await _run(["kubectl", "apply", "-f", manifest_path, "-n", namespace])
 
 
+@mcp.tool()
+async def kubectl_exec(
+    pod: str,
+    command: list[str],
+    namespace: str = "default",
+    container: str = "",
+    confirm: bool = False,
+) -> str:
+    """Run a command inside a pod's container. Requires confirm=true — this runs
+    arbitrary commands with the pod's permissions, equivalent to shell access."""
+    if err := _confirm_required(confirm, f"exec into pod {pod}"):
+        return err
+    cmd = ["kubectl", "exec", pod, "-n", namespace]
+    if container:
+        cmd += ["-c", container]
+    cmd += ["--", *command]
+    return await _run(cmd)
+
+
+@mcp.tool()
+async def kubectl_rollout_restart(
+    resource: str,
+    name: str,
+    namespace: str = "default",
+    confirm: bool = False,
+) -> str:
+    """Restart a deployment/statefulset/daemonset (e.g. resource='deployment', name='my-app').
+    Requires confirm=true."""
+    if err := _confirm_required(confirm, f"rollout restart {resource} {name}"):
+        return err
+    return await _run(["kubectl", "rollout", "restart", resource, name, "-n", namespace])
+
+
+@mcp.tool()
+async def kubectl_delete_pods(
+    namespace: str = "default",
+    name: str = "",
+    label_selector: str = "",
+    confirm: bool = False,
+) -> str:
+    """Delete a pod by name, or multiple pods by label_selector (e.g. 'app=my-app').
+    Exactly one of name or label_selector must be set. Requires confirm=true."""
+    if err := _confirm_required(confirm, "delete pod(s)"):
+        return err
+    if bool(name) == bool(label_selector):
+        return "Exactly one of name or label_selector must be set."
+    cmd = ["kubectl", "delete", "pod", "-n", namespace]
+    if name:
+        cmd.append(name)
+    else:
+        cmd += ["-l", label_selector]
+    return await _run(cmd)
+
+
 def main() -> None:
     mcp.run()
 

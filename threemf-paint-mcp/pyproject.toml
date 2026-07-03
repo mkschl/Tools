@@ -1,0 +1,27 @@
+[project]
+name = "threemf-paint-mcp"
+version = "0.1.0"
+description = "Local MCP server for inspecting and recoloring Bambu Studio / OrcaSlicer .3mf paint data"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+threemf-paint-mcp = "threemf_paint_mcp.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["threemf_paint_mcp", "reference"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

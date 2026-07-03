@@ -1,0 +1,5 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["threemf_paint_mcp", "reference", "tests"]
+}

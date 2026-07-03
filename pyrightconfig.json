@@ -1,0 +1,11 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": [
+    "agent-memory-mcp",
+    "kubectl-mcp",
+    "lmstudio-code-cli",
+    "parallels-mcp",
+    "threemf-paint-mcp"
+  ]
+}

@@ -14,7 +14,7 @@ import httpx
 class MCPTool:
     name: str
     description: str
-    input_schema: dict
+    input_schema: dict | None
 
     def to_openai(self) -> dict:
         """Return an OpenAI-compatible function-tool definition."""

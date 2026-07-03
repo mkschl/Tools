@@ -246,6 +246,8 @@ def _model_interactive(agent: Agent) -> None:
 
 def _mcp_interactive(agent: Agent) -> None:
     """Interactive checkbox picker for MCP tool groups."""
+    if not agent.mcp:
+        return
     groups: dict[str, list[str]] = {}
     for t in agent.mcp.tools:
         prefix = t.name.split("_")[0]

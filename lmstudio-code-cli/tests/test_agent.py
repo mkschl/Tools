@@ -1,4 +1,5 @@
 import json
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from openai import APIConnectionError
@@ -162,16 +163,17 @@ def test_clear_history_on_empty_history_is_safe(tmp_path):
 
 def test_execute_routes_to_mcp_when_owned(tmp_path):
     agent = _make_agent_with_mcp(tmp_path, [MCPTool("kanban_add", "", {})])
-    agent.mcp.owns.return_value = True
-    agent.mcp.call_tool.return_value = "mcp result"
+    mcp = cast(MagicMock, agent.mcp)
+    mcp.owns.return_value = True
+    mcp.call_tool.return_value = "mcp result"
     result = agent._execute("kanban_add", {"board": "x"})
-    agent.mcp.call_tool.assert_called_once_with("kanban_add", {"board": "x"})
+    mcp.call_tool.assert_called_once_with("kanban_add", {"board": "x"})
     assert result == "mcp result"
 
 
 def test_execute_routes_to_builtin_when_not_owned(tmp_path):
     agent = _make_agent_with_mcp(tmp_path, [])
-    agent.mcp.owns.return_value = False
+    cast(MagicMock, agent.mcp).owns.return_value = False
     with patch("lmstudio_code_cli.agent.execute_tool", return_value="builtin result") as mock_exec:
         result = agent._execute("read_file", {"path": "x.py"})
     mock_exec.assert_called_once_with("read_file", {"path": "x.py"}, agent.config.cwd)
@@ -188,8 +190,9 @@ def test_execute_routes_to_builtin_when_no_mcp(tmp_path):
 
 def test_execute_returns_error_string_on_mcp_exception(tmp_path):
     agent = _make_agent_with_mcp(tmp_path, [MCPTool("bad_tool", "", {})])
-    agent.mcp.owns.return_value = True
-    agent.mcp.call_tool.side_effect = RuntimeError("gateway down")
+    mcp = cast(MagicMock, agent.mcp)
+    mcp.owns.return_value = True
+    mcp.call_tool.side_effect = RuntimeError("gateway down")
     result = agent._execute("bad_tool", {})
     assert "gateway down" in result
 
@@ -348,13 +351,15 @@ def test_format_api_error_falls_back_to_message_on_plain_string():
 def test_list_models_returns_model_ids(tmp_path):
     agent = _make_agent(cwd=str(tmp_path))
     m1, m2 = MagicMock(id="gemma-4"), MagicMock(id="mistral-7b")
-    agent.client.models.list.return_value.data = [m1, m2]
+    cast(MagicMock, agent.client).models.list.return_value.data = [m1, m2]
     assert agent.list_models() == ["gemma-4", "mistral-7b"]
 
 
 def test_list_models_returns_empty_list_on_connection_error(tmp_path):
     agent = _make_agent(cwd=str(tmp_path))
-    agent.client.models.list.side_effect = APIConnectionError.__new__(APIConnectionError)
+    cast(MagicMock, agent.client).models.list.side_effect = APIConnectionError.__new__(
+        APIConnectionError
+    )
     assert agent.list_models() == []
 
 

@@ -41,8 +41,8 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         return cls(
-            base_url=os.environ.get("LMSTUDIO_URL", DEFAULTS["url"]),
-            api_key=os.environ.get("LMSTUDIO_API_KEY", DEFAULTS["api_key"]),
+            base_url=os.environ.get("LMSTUDIO_URL") or DEFAULTS["url"],
+            api_key=os.environ.get("LMSTUDIO_API_KEY") or DEFAULTS["api_key"],
             model=os.environ.get("LMSTUDIO_MODEL", ""),
-            max_tokens=int(os.environ.get("LMSTUDIO_MAX_TOKENS", DEFAULTS["max_tokens"])),
+            max_tokens=int(os.environ.get("LMSTUDIO_MAX_TOKENS") or DEFAULTS["max_tokens"]),
         )

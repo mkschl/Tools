@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP, Image
 mcp = FastMCP("parallels")
 
 
-async def _run(cmd: list[str], timeout: int = 60) -> str:
+async def _run(cmd: list[str], timeout: float = 60) -> str:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,

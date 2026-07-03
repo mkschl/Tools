@@ -1,7 +1,10 @@
 import json
 import sys
 from pathlib import Path
+from typing import cast
+
 from openai import OpenAI, APIConnectionError, APIStatusError
+from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolUnionParam
 
 from .attachments import Attachment
 from .config import Config
@@ -234,8 +237,10 @@ class Agent:
         try:
             stream = self.client.chat.completions.create(
                 model=self.model,
-                messages=[self._system_message(), *self.history],
-                tools=self._tools,
+                messages=cast(
+                    list[ChatCompletionMessageParam], [self._system_message(), *self.history]
+                ),
+                tools=cast(list[ChatCompletionToolUnionParam], self._tools),
                 tool_choice="auto",
                 max_tokens=self.config.max_tokens,
                 stream=True,

@@ -12,6 +12,11 @@ from prompt_toolkit.styles import Style
 from .attachments import parse as parse_attachments
 from .defaults import DEFAULTS
 
+from .config import Config, MCPConfig
+from .agent import Agent
+from .mcp_client import MCPGatewayClient
+from . import ui
+
 _CONFIG_PATH = Path.home() / ".lmstudio-code-cli.toml"
 
 
@@ -29,12 +34,6 @@ def _save_config(updates: dict) -> None:
     for k, v in existing.items():
         lines.append(f'{k} = "{v}"\n' if isinstance(v, str) else f"{k} = {v}\n")
     _CONFIG_PATH.write_text("".join(lines))
-
-
-from .config import Config, MCPConfig
-from .agent import Agent
-from .mcp_client import MCPGatewayClient
-from . import ui
 
 def _prompt_style() -> Style:
     return Style.from_dict({"prompt": f"bold {ui.THEMES[ui.active_theme()]['_prompt']}"})

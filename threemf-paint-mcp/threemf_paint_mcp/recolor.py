@@ -2,7 +2,7 @@
 
 Both can be scoped to specific objects (by root-level object id, or by
 name via `recolor_by_name`) instead of touching the whole archive -- see
-`_scope_by_path` for how a root-level object id (the id
+`threemf_model.scope_refs_by_path` for how a root-level object id (the id
 `model_settings.config`'s name/extruder metadata uses) gets translated
 into the mesh-internal object id(s) that actually own `<triangle>`
 elements, per `threemf_model.ObjectRef`.
@@ -27,15 +27,6 @@ class RecolorError(RuntimeError):
 def _count_triangles(xml_bytes: bytes) -> int:
     root = ET.fromstring(xml_bytes)
     return sum(1 for _ in threemf_model.iter_local(root, "triangle"))
-
-
-def _scope_by_path(refs: list[threemf_model.ObjectRef], root_ids: set[str]) -> dict[str, set[str]]:
-    """{model_path: {mesh-internal object ids}} for the requested root-level ids."""
-    scope: dict[str, set[str]] = {}
-    for ref in refs:
-        if ref.root_object_id in root_ids:
-            scope.setdefault(ref.model_path, set()).add(ref.mesh_object_id)
-    return scope
 
 
 def recolor_slots(
@@ -67,7 +58,7 @@ def recolor_slots(
             missing = requested - known_roots
             if missing:
                 raise RecolorError(f"object_ids not found: {sorted(missing)}")
-            scope_by_path = _scope_by_path(refs, requested)
+            scope_by_path = threemf_model.scope_refs_by_path(refs, requested)
 
     updated_entries: dict[str, bytes] = {}
     files_changed: list[str] = []
@@ -166,7 +157,7 @@ def recolor_slots(
 def _used_slots_for_root_ids(path: Path, root_ids: set[str]) -> set[int]:
     with zipfile.ZipFile(path) as zf:
         refs = threemf_model.get_object_refs(zf)
-        scope_by_path = _scope_by_path(refs, root_ids)
+        scope_by_path = threemf_model.scope_refs_by_path(refs, root_ids)
 
         slots: set[int] = set()
         for model_path, mesh_ids in scope_by_path.items():

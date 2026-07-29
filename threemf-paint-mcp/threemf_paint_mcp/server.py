@@ -8,7 +8,9 @@ from mcp.server.fastmcp import FastMCP
 
 from threemf_paint_mcp import archive
 from threemf_paint_mcp.coverage import get_coverage_report as _get_coverage_report
+from threemf_paint_mcp.diff import diff_3mf as _diff_3mf
 from threemf_paint_mcp.inspect import inspect_archive
+from threemf_paint_mcp.paint_region import paint_region as _paint_region
 from threemf_paint_mcp.palette import swap_filament_palette as _swap_filament_palette
 from threemf_paint_mcp.plates import extract_plate as _extract_plate
 from threemf_paint_mcp.plates import list_plates as _list_plates
@@ -163,6 +165,68 @@ def get_paint_coverage_report(path: str, object_ids: list[str] | None = None) ->
     Read-only -- makes no changes to the archive.
     """
     return _get_coverage_report(path, object_ids=object_ids)
+
+
+@mcp.tool()
+def paint_region(
+    path: str,
+    output_path: str,
+    slot: int,
+    x_min: float | None = None,
+    x_max: float | None = None,
+    y_min: float | None = None,
+    y_max: float | None = None,
+    z_min: float | None = None,
+    z_max: float | None = None,
+    mode: str = "any",
+    object_ids: list[str] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Paint every triangle whose vertices fall inside an axis-aligned bounding box.
+
+    Any bound left unset is unbounded on that axis -- e.g. only setting
+    z_min/z_max selects by Z range regardless of X/Y. At least one bound
+    is required; use recolor_slots/recolor_by_name to paint a whole
+    object instead. mode="any" (default) selects a triangle if any vertex
+    is inside the box; mode="all" requires every vertex inside. Useful for
+    painting detail that was never painted at all (no existing paint for
+    repair_embossed_paint to detect a plane from) and isn't its own named
+    object. Multi-region (split) triangles inside the selection are left
+    untouched and reported as faces_skipped_multi_region rather than
+    guessed at. Idempotent -- reports already_complete and writes nothing
+    if the selection is already fully painted. Set dry_run=True to preview
+    counts without writing.
+    """
+    return _paint_region(
+        path,
+        output_path,
+        slot,
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
+        z_min=z_min,
+        z_max=z_max,
+        mode=mode,
+        object_ids=object_ids,
+        dry_run=dry_run,
+    )
+
+
+@mcp.tool()
+def diff_3mf(path_a: str, path_b: str) -> dict:
+    """Compare two .3mf files' filament palette, objects, and paint usage.
+
+    Read-only -- makes no changes. Returns triangle_counts (total per
+    side), palette_diff (slots whose hex color differs), objects_added /
+    objects_removed (root-level object ids only on one side),
+    objects_changed (common objects whose name or base_extruder_slot
+    differs), and paint_usage_diff (slots whose painted-leaf-region count
+    differs). identical is true only if none of those found a difference.
+    Useful for confirming a recolor/repair tool changed exactly what was
+    expected and nothing else.
+    """
+    return _diff_3mf(path_a, path_b)
 
 
 @mcp.tool()

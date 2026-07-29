@@ -13,6 +13,8 @@ def test_registered_tool_names():
         "repair_embossed_paint",
         "swap_filament_palette",
         "get_paint_coverage_report",
+        "paint_region",
+        "diff_3mf",
     }
 
 
@@ -73,3 +75,18 @@ def test_get_paint_coverage_report_tool(single_object_3mf):
     result = server.get_paint_coverage_report(str(single_object_3mf))
     assert result["objects"][0]["object_id"] == "1"
     assert result["objects"][0]["area_by_slot"] == {"4": 0.5}
+
+
+def test_paint_region_tool(region_paint_3mf, tmp_path):
+    output = tmp_path / "painted.3mf"
+    result = server.paint_region(str(region_paint_3mf), str(output), 2, x_max=1)
+    assert result["faces_newly_painted"] == 1
+    assert result["validation"]["ok"] is True
+
+
+def test_diff_3mf_tool(single_object_3mf, tmp_path):
+    output = tmp_path / "recolored.3mf"
+    server.recolor_slots(str(single_object_3mf), {"4": 2}, str(output))
+    result = server.diff_3mf(str(single_object_3mf), str(output))
+    assert result["identical"] is False
+    assert result["paint_usage_diff"]["2"] == {"a": 0, "b": 2}

@@ -137,6 +137,20 @@ def get_object_refs(zf: zipfile.ZipFile) -> list[ObjectRef]:
     return refs
 
 
+def scope_refs_by_path(refs: list[ObjectRef], root_ids: set[str]) -> dict[str, set[str]]:
+    """{model_path: {mesh-internal object ids}} for the requested root-level ids.
+
+    Shared by any tool that scopes a triangle-level edit to specific
+    root-level object ids (recolor_slots, paint_region) -- bridges the two
+    id spaces described in ObjectRef's docstring.
+    """
+    scope: dict[str, set[str]] = {}
+    for ref in refs:
+        if ref.root_object_id in root_ids:
+            scope.setdefault(ref.model_path, set()).add(ref.mesh_object_id)
+    return scope
+
+
 def find_referenced_object_paths(zf: zipfile.ZipFile) -> set[str]:
     """Every `3D/Objects/*.model` file referenced via <component p:path=...>."""
     if ROOT_MODEL not in zf.namelist():

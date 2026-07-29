@@ -502,3 +502,84 @@ known right-triangle geometry, split-region triangles landing in
 error, a fully unpainted mesh, and reusing the emboss wall-gap fixture to
 show `painted_fraction` surfacing a defect that a triangle-count-only view
 would understate.
+
+### Tool: `paint_region`
+
+Implemented in [paint_region.py](threemf_paint_mcp/paint_region.py). The
+other paint-selection tools each key on a different signal —
+`repair_embossed_paint` on a detected Z-plane, `recolor_by_name`/
+`recolor_slots(object_ids=...)` on a whole named object. `paint_region`
+adds the missing case: pure geometric selection via an axis-aligned
+bounding box, for detail that was never painted at all (so there's no
+existing paint for plane-detection to key off) and isn't cleanly its own
+named object.
+
+```python
+paint_region(
+    path: str,
+    output_path: str,
+    slot: int,
+    x_min: float | None = None,
+    x_max: float | None = None,
+    y_min: float | None = None,
+    y_max: float | None = None,
+    z_min: float | None = None,
+    z_max: float | None = None,
+    mode: str = "any",  # "any" vertex in-box vs "all" vertices in-box
+    object_ids: list[str] | None = None,
+    dry_run: bool = False,
+) -> dict
+```
+
+Any bound left `None` is unbounded on that axis — e.g. setting only
+`z_min`/`z_max` paints by Z range. At least one bound is required (raises
+`RegionPaintError` otherwise, pointing at `recolor_slots`/
+`recolor_by_name` for whole-object painting) to avoid an unbounded call
+silently repainting everything in scope. `mode="any"` (default) selects a
+triangle touching the box at all; `mode="all"` requires full containment.
+Same classification and idempotency shape as `repair_embossed_paint`:
+`faces_newly_painted` / `faces_recoloured` / `faces_already_correct` /
+`faces_skipped_multi_region` (split nodes inside the selection are never
+guessed at), `already_complete: true` writing nothing when nothing
+changed, `dry_run` to preview.
+
+Object scoping reuses `threemf_model.scope_refs_by_path` — originally a
+private helper duplicated inside `recolor.py`, promoted to a shared
+`threemf_model` function once a second tool needed the same root-id → mesh-id
+bridging.
+
+Test coverage in `tests/test_paint_region.py` (`build_region_paint_fixture`
+in `tests/fixtures.py`, three spatially separated triangle clusters — one
+fully inside a typical test region carrying all four paint states, one
+fully outside, one straddling a boundary) covers: newly-painted/
+recoloured/already-correct/skipped-multi-region classification in one
+pass, out-of-bounds triangles left untouched, `mode="any"` vs `mode="all"`
+on the straddling triangle, the missing-bound and invalid-mode errors,
+`dry_run`, and `object_ids` scoping's missing-id error.
+
+### Tool: `diff_3mf`
+
+Read-only, implemented in [diff.py](threemf_paint_mcp/diff.py). Compares
+two `.3mf` files the way a human would eyeball a before/after — useful
+for confirming a `recolor_slots`/`repair_embossed_paint`/etc. run changed
+exactly what was expected and nothing else.
+
+```python
+diff_3mf(path_a: str, path_b: str) -> dict
+```
+
+Built on `inspect_archive` (the same data `inspect_3mf` returns) plus a
+whole-archive triangle count. Returns `triangle_counts` (`{"a": ..., "b":
+...}`), `palette_diff` (slots whose hex differs), `objects_added` /
+`objects_removed` (root-level ids present on only one side),
+`objects_changed` (common ids whose `name` or `base_extruder_slot`
+differs), and `paint_usage_diff` (slots whose painted-leaf-region count
+differs, defaulting the missing side to 0). `identical` is `true` only if
+none of those found anything.
+
+Test coverage in `tests/test_diff.py` covers: identical archives, a
+chained `recolor_slots` + `swap_filament_palette` run surfacing both
+`palette_diff` and `paint_usage_diff`, `extract_plate` output surfacing
+`objects_removed`, a dedicated fixture pair (`build_diff_variant_fixture`)
+isolating `objects_changed` on `name`/`base_extruder_slot`, and a
+cross-fixture triangle-count mismatch.

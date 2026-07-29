@@ -65,11 +65,15 @@ def _root_model_xml(objects: list[tuple[str, str, str]]) -> bytes:
 
 
 def _model_settings_xml(
-    objects: list[str], plates: list[dict], object_names: dict[str, str] | None = None
+    objects: list[str],
+    plates: list[dict],
+    object_names: dict[str, str] | None = None,
+    extruders: dict[str, str] | None = None,
 ) -> bytes:
     object_names = object_names or {}
+    extruders = extruders or {}
     object_blocks = "".join(
-        f'<object id="{oid}"><metadata key="extruder" value="1"/>'
+        f'<object id="{oid}"><metadata key="extruder" value="{extruders.get(oid, "1")}"/>'
         + (f'<metadata key="name" value="{object_names[oid]}"/>' if oid in object_names else "")
         + "</object>"
         for oid in objects
@@ -315,6 +319,80 @@ def build_engraved_fixture(tmp_path: Path) -> Path:
     project_settings = _project_settings_json(["#000000", "#FF0000", "#00FF00", "#FFFF00"])
 
     out = tmp_path / "engraved.3mf"
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("3D/3dmodel.model", root_model)
+        zf.writestr("3D/Objects/object_1.model", object_model)
+        zf.writestr("Metadata/model_settings.config", model_settings)
+        zf.writestr("Metadata/project_settings.config", project_settings)
+    return out
+
+
+def build_region_paint_fixture(tmp_path: Path) -> Path:
+    """Three spatially distinct triangle clusters, for bounding-box selection tests.
+
+    Cluster A (vertices 0-2, around x=0..1) sits inside a typical test
+    region (x <= 2) and carries four differently-painted duplicate faces
+    -- unpainted, slot-1 leaf, slot-2 leaf (the usual `target_slot` used
+    in tests), and a multi-region split -- so a single selection exercises
+    the newly-painted/recoloured/already-correct/skipped-multi-region
+    paths in one pass. Cluster B (vertices 3-5, around x=10..11) sits well
+    outside that region, to confirm out-of-scope triangles are untouched.
+    Cluster C (vertices 6-8) straddles the x=2 boundary -- one vertex in,
+    one out, one in -- to distinguish mode="any" from mode="all".
+    """
+    vertices = [
+        (0, 0, 0),
+        (1, 0, 0),
+        (0, 1, 0),
+        (10, 10, 0),
+        (11, 10, 0),
+        (10, 11, 0),
+        (1.5, 0, 0),
+        (2.5, 0, 0),
+        (1.5, 1, 0),
+    ]
+    triangles = [
+        (0, 1, 2, None),
+        (0, 1, 2, PAINT_LEAF_SLOT_1),
+        (0, 1, 2, PAINT_SLOT_2),
+        (0, 1, 2, PAINT_SPLIT_MIXED),
+        (3, 4, 5, None),
+        (6, 7, 8, None),
+    ]
+    object_model = _object_model_xml_explicit(object_id="2", vertices=vertices, triangles=triangles)
+    root_model = _root_model_xml([("1", "2", "3D/Objects/object_1.model")])
+    model_settings = _model_settings_xml(
+        objects=["1"],
+        plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1"]}],
+    )
+    project_settings = _project_settings_json(["#000000", "#FF0000", "#00FF00", "#0000FF"])
+
+    out = tmp_path / "region_paint.3mf"
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("3D/3dmodel.model", root_model)
+        zf.writestr("3D/Objects/object_1.model", object_model)
+        zf.writestr("Metadata/model_settings.config", model_settings)
+        zf.writestr("Metadata/project_settings.config", project_settings)
+    return out
+
+
+def build_diff_variant_fixture(tmp_path: Path, suffix: str, name: str, extruder: str) -> Path:
+    """Single object like build_single_object_fixture, with a parameterized
+    name/base-extruder -- for diff_3mf's objects_changed detection, which
+    needs two otherwise-identical archives differing in exactly those
+    fields.
+    """
+    object_model = _object_model_xml(object_id="2", paint_colors=[PAINT_LEAF_SLOT_4])
+    root_model = _root_model_xml([("1", "2", "3D/Objects/object_1.model")])
+    model_settings = _model_settings_xml(
+        objects=["1"],
+        plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1"]}],
+        object_names={"1": name},
+        extruders={"1": extruder},
+    )
+    project_settings = _project_settings_json(["#000000", "#FF0000", "#00FF00", "#0000FF"])
+
+    out = tmp_path / f"diff_variant_{suffix}.3mf"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("3D/3dmodel.model", root_model)
         zf.writestr("3D/Objects/object_1.model", object_model)

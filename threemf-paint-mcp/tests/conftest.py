@@ -6,6 +6,7 @@ from tests.fixtures import (
     build_engraved_fixture,
     build_multi_plate_fixture,
     build_named_objects_fixture,
+    build_region_paint_fixture,
     build_single_object_fixture,
     build_unpainted_box_fixture,
 )
@@ -44,3 +45,8 @@ def unpainted_box_3mf(tmp_path):
 @pytest.fixture
 def engraved_3mf(tmp_path):
     return build_engraved_fixture(tmp_path)
+
+
+@pytest.fixture
+def region_paint_3mf(tmp_path):
+    return build_region_paint_fixture(tmp_path)

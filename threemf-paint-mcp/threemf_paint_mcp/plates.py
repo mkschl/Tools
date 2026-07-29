@@ -58,9 +58,7 @@ def _serialize(root: ET.Element) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def _filter_root_model(
-    xml_bytes: bytes, keep_object_ids: set[str]
-) -> tuple[bytes, set[str]]:
+def _filter_root_model(xml_bytes: bytes, keep_object_ids: set[str]) -> tuple[bytes, set[str]]:
     _register_original_namespaces(xml_bytes)
     root = ET.fromstring(xml_bytes)
 
@@ -144,18 +142,14 @@ def extract_plate(path: str | Path, plater_id: str, output_path: str | Path) -> 
             if name.startswith("3D/Objects/") and name not in referenced_paths:
                 del new_entries[name]
     else:
-        warnings.append(
-            f"{threemf_model.ROOT_MODEL} missing; skipped root-model filtering"
-        )
+        warnings.append(f"{threemf_model.ROOT_MODEL} missing; skipped root-model filtering")
 
     if threemf_model.MODEL_SETTINGS in entries:
         new_entries[threemf_model.MODEL_SETTINGS] = _filter_model_settings(
             entries[threemf_model.MODEL_SETTINGS], keep_object_ids, plater_id
         )
     else:
-        warnings.append(
-            f"{threemf_model.MODEL_SETTINGS} missing; skipped plate/object filtering"
-        )
+        warnings.append(f"{threemf_model.MODEL_SETTINGS} missing; skipped plate/object filtering")
 
     for name in list(new_entries):
         base = name.rsplit("/", 1)[-1]
@@ -200,9 +194,7 @@ def extract_plate(path: str | Path, plater_id: str, output_path: str | Path) -> 
     return {
         "output_path": str(output_path),
         "plater_id": plater_id,
-        "object_ids": sorted(
-            keep_object_ids, key=lambda x: int(x) if x.isdigit() else x
-        ),
+        "object_ids": sorted(keep_object_ids, key=lambda x: int(x) if x.isdigit() else x),
         "validation": validation,
         "warnings": warnings,
     }

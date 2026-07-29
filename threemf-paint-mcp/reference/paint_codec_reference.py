@@ -203,9 +203,7 @@ def _validate(node: Node) -> None:
         return
     if isinstance(node, Split):
         if not 2 <= len(node.children) <= 4:
-            raise ValueError(
-                f"split node must have 2-4 children, got {len(node.children)}"
-            )
+            raise ValueError(f"split node must have 2-4 children, got {len(node.children)}")
         for child in node.children:
             _validate(child)
         return

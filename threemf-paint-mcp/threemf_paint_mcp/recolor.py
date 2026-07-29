@@ -29,9 +29,7 @@ def _count_triangles(xml_bytes: bytes) -> int:
     return sum(1 for _ in threemf_model.iter_local(root, "triangle"))
 
 
-def _scope_by_path(
-    refs: list[threemf_model.ObjectRef], root_ids: set[str]
-) -> dict[str, set[str]]:
+def _scope_by_path(refs: list[threemf_model.ObjectRef], root_ids: set[str]) -> dict[str, set[str]]:
     """{model_path: {mesh-internal object ids}} for the requested root-level ids."""
     scope: dict[str, set[str]] = {}
     for ref in refs:
@@ -80,9 +78,7 @@ def recolor_slots(
         raw = original_bytes[model_path]
         root = ET.fromstring(raw)
 
-        in_scope_mesh_ids = (
-            None if scope_by_path is None else scope_by_path.get(model_path, set())
-        )
+        in_scope_mesh_ids = None if scope_by_path is None else scope_by_path.get(model_path, set())
 
         decisions: list[str | None] = []
         file_changed_codes: set[str] = set()
@@ -223,8 +219,7 @@ def recolor_by_name(
     )
     if not matched_ids:
         raise RecolorError(
-            f"no object name matches {object_name!r} "
-            f"(known names: {sorted(object_names.values())})"
+            f"no object name matches {object_name!r} (known names: {sorted(object_names.values())})"
         )
 
     used_slots = _used_slots_for_root_ids(path, set(matched_ids))

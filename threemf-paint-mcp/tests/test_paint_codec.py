@@ -13,9 +13,7 @@ from reference.paint_codec_reference import (
     verify_roundtrip,
 )
 
-SAMPLE_VALUES_PATH = (
-    Path(__file__).parent / "fixtures" / "sample_paint_color_values.txt"
-)
+SAMPLE_VALUES_PATH = Path(__file__).parent / "fixtures" / "sample_paint_color_values.txt"
 SAMPLE_VALUES = [
     line.strip() for line in SAMPLE_VALUES_PATH.read_text().splitlines() if line.strip()
 ]

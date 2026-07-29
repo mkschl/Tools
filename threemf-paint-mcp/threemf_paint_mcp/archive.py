@@ -63,11 +63,10 @@ def repackage_with_updates(
             cwd=tmp_path,
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode != 0:
-            raise RepackageError(
-                f"zip update failed (exit {result.returncode}): {result.stderr}"
-            )
+            raise RepackageError(f"zip update failed (exit {result.returncode}): {result.stderr}")
 
 
 def rebuild_from_entries(output_path: Path, entries: dict[str, bytes]) -> None:
@@ -96,9 +95,7 @@ def validate_archive(archive_path: Path, xml_entries: list[str] | None = None) -
         targets = xml_entries
         if targets is None:
             targets = [
-                n
-                for n in zf.namelist()
-                if n.endswith((".model", ".config", ".xml", ".rels"))
+                n for n in zf.namelist() if n.endswith((".model", ".config", ".xml", ".rels"))
             ]
         for name in targets:
             data = zf.read(name)

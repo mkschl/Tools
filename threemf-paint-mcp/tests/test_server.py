@@ -11,6 +11,8 @@ def test_registered_tool_names():
         "extract_plate",
         "validate_3mf",
         "repair_embossed_paint",
+        "swap_filament_palette",
+        "get_paint_coverage_report",
     }
 
 
@@ -56,3 +58,18 @@ def test_list_and_extract_plate_tools(multi_plate_3mf, tmp_path):
     output = tmp_path / "plate2.3mf"
     result = server.extract_plate(str(multi_plate_3mf), "2", str(output))
     assert result["object_ids"] == ["3"]
+
+
+def test_swap_filament_palette_tool(single_object_3mf, tmp_path):
+    output = tmp_path / "swapped.3mf"
+    result = server.swap_filament_palette(str(single_object_3mf), {"2": "#123456"}, str(output))
+    assert result["colours_changed"] == {"2": {"old": "#FF0000", "new": "#123456"}}
+
+    reinspected = server.inspect_3mf(str(output))
+    assert reinspected["filament_palette"]["2"] == "#123456"
+
+
+def test_get_paint_coverage_report_tool(single_object_3mf):
+    result = server.get_paint_coverage_report(str(single_object_3mf))
+    assert result["objects"][0]["object_id"] == "1"
+    assert result["objects"][0]["area_by_slot"] == {"4": 0.5}

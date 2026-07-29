@@ -54,8 +54,7 @@ def _root_model_xml(objects: list[tuple[str, str, str]]) -> bytes:
         for oid, cid, path in objects
     )
     items = "".join(
-        f'<item objectid="{oid}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
-        for oid, _, _ in objects
+        f'<item objectid="{oid}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>' for oid, _, _ in objects
     )
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="{CORE_NS}" xmlns:p="{PROD_NS}" unit="millimeter">
@@ -71,11 +70,7 @@ def _model_settings_xml(
     object_names = object_names or {}
     object_blocks = "".join(
         f'<object id="{oid}"><metadata key="extruder" value="1"/>'
-        + (
-            f'<metadata key="name" value="{object_names[oid]}"/>'
-            if oid in object_names
-            else ""
-        )
+        + (f'<metadata key="name" value="{object_names[oid]}"/>' if oid in object_names else "")
         + "</object>"
         for oid in objects
     )
@@ -116,9 +111,7 @@ def build_single_object_fixture(tmp_path: Path) -> Path:
         objects=["1"],
         plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1"]}],
     )
-    project_settings = _project_settings_json(
-        ["#000000", "#FF0000", "#00FF00", "#0000FF"]
-    )
+    project_settings = _project_settings_json(["#000000", "#FF0000", "#00FF00", "#0000FF"])
 
     out = tmp_path / "single_object.3mf"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -154,9 +147,7 @@ def build_named_objects_fixture(tmp_path: Path) -> Path:
         plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1", "2"]}],
         object_names={"1": "Text", "2": "Base"},
     )
-    project_settings = _project_settings_json(
-        ["#000000", "#FF0000", "#00FF00", "#0000FF"]
-    )
+    project_settings = _project_settings_json(["#000000", "#FF0000", "#00FF00", "#0000FF"])
 
     out = tmp_path / "named_objects.3mf"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -181,9 +172,7 @@ def _object_model_xml_explicit(
     """
     vertex_xml = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in vertices)
     triangle_xml = "".join(
-        f'<triangle v1="{v1}" v2="{v2}" v3="{v3}"'
-        + (f' paint_color="{pc}"' if pc else "")
-        + "/>"
+        f'<triangle v1="{v1}" v2="{v2}" v3="{v3}"' + (f' paint_color="{pc}"' if pc else "") + "/>"
         for v1, v2, v3, pc in triangles
     )
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -283,9 +272,7 @@ def build_embossed_repaired_fixture(tmp_path: Path) -> Path:
 
 def build_unpainted_box_fixture(tmp_path: Path) -> Path:
     """Same shape, nothing painted anywhere -- repair should refuse to guess."""
-    return _embossed_fixture_archive(
-        tmp_path, "unpainted_box.3mf", top_paint=None, wall_paint=None
-    )
+    return _embossed_fixture_archive(tmp_path, "unpainted_box.3mf", top_paint=None, wall_paint=None)
 
 
 def build_engraved_fixture(tmp_path: Path) -> Path:
@@ -319,17 +306,13 @@ def build_engraved_fixture(tmp_path: Path) -> Path:
         (3, 0, 4, None),
         (3, 4, 7, None),
     ]
-    object_model = _object_model_xml_explicit(
-        object_id="2", vertices=vertices, triangles=triangles
-    )
+    object_model = _object_model_xml_explicit(object_id="2", vertices=vertices, triangles=triangles)
     root_model = _root_model_xml([("1", "2", "3D/Objects/object_1.model")])
     model_settings = _model_settings_xml(
         objects=["1"],
         plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1"]}],
     )
-    project_settings = _project_settings_json(
-        ["#000000", "#FF0000", "#00FF00", "#FFFF00"]
-    )
+    project_settings = _project_settings_json(["#000000", "#FF0000", "#00FF00", "#FFFF00"])
 
     out = tmp_path / "engraved.3mf"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:

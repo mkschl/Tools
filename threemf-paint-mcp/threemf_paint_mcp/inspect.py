@@ -35,12 +35,8 @@ def inspect_archive(path: str | Path) -> dict:
         for object_id in sorted(all_object_ids, key=int)
     ]
     return {
-        "filament_palette": {
-            str(slot): colour for slot, colour in sorted(palette.items())
-        },
+        "filament_palette": {str(slot): colour for slot, colour in sorted(palette.items())},
         "objects": objects,
-        "paint_usage_by_slot": {
-            str(slot): count for slot, count in sorted(usage.items())
-        },
+        "paint_usage_by_slot": {str(slot): count for slot, count in sorted(usage.items())},
         "unpainted_leaf_regions": unpainted_regions,
     }

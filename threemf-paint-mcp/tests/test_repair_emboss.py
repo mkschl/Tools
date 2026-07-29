@@ -11,9 +11,7 @@ _MIN_PLANE_VERTS = 4
 
 def test_repair_paints_wall_faces_left_by_camera_angle(embossed_wall_gap_3mf, tmp_path):
     output = tmp_path / "repaired.3mf"
-    result = repair_embossed_paint(
-        embossed_wall_gap_3mf, output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    result = repair_embossed_paint(embossed_wall_gap_3mf, output, min_plane_verts=_MIN_PLANE_VERTS)
 
     assert result["output_path"] == str(output)
     assert result["triangles_changed"] == 8  # the 8 side-wall triangles
@@ -31,14 +29,10 @@ def test_repair_paints_wall_faces_left_by_camera_angle(embossed_wall_gap_3mf, tm
 
 def test_repair_is_idempotent(embossed_wall_gap_3mf, tmp_path):
     first_output = tmp_path / "repaired.3mf"
-    repair_embossed_paint(
-        embossed_wall_gap_3mf, first_output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    repair_embossed_paint(embossed_wall_gap_3mf, first_output, min_plane_verts=_MIN_PLANE_VERTS)
 
     second_output = tmp_path / "repaired_again.3mf"
-    result = repair_embossed_paint(
-        first_output, second_output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    result = repair_embossed_paint(first_output, second_output, min_plane_verts=_MIN_PLANE_VERTS)
 
     assert result["already_complete"] is True
     assert result["output_path"] is None
@@ -47,9 +41,7 @@ def test_repair_is_idempotent(embossed_wall_gap_3mf, tmp_path):
 
 def test_repair_already_complete_mesh_writes_nothing(embossed_repaired_3mf, tmp_path):
     output = tmp_path / "repaired.3mf"
-    result = repair_embossed_paint(
-        embossed_repaired_3mf, output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    result = repair_embossed_paint(embossed_repaired_3mf, output, min_plane_verts=_MIN_PLANE_VERTS)
 
     assert result["already_complete"] is True
     assert result["output_path"] is None
@@ -70,9 +62,7 @@ def test_repair_dry_run_previews_without_writing(embossed_wall_gap_3mf, tmp_path
 
 def test_repair_refuses_on_completely_unpainted_mesh(unpainted_box_3mf, tmp_path):
     output = tmp_path / "repaired.3mf"
-    result = repair_embossed_paint(
-        unpainted_box_3mf, output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    result = repair_embossed_paint(unpainted_box_3mf, output, min_plane_verts=_MIN_PLANE_VERTS)
 
     assert "error" in result
     assert result["output_path"] is None
@@ -99,9 +89,7 @@ def test_repair_explicit_override_works_on_unpainted_mesh(unpainted_box_3mf, tmp
 
 def test_repair_picks_engraved_floor_not_the_top_plane(engraved_3mf, tmp_path):
     output = tmp_path / "repaired.3mf"
-    result = repair_embossed_paint(
-        engraved_3mf, output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    result = repair_embossed_paint(engraved_3mf, output, min_plane_verts=_MIN_PLANE_VERTS)
 
     mesh = result["meshes"][0]
     assert mesh["detail_plane_z"] == 0.0  # the painted floor, not the z=1 top
@@ -111,9 +99,7 @@ def test_repair_picks_engraved_floor_not_the_top_plane(engraved_3mf, tmp_path):
 
 def test_repair_preserves_other_zip_entries(embossed_wall_gap_3mf, tmp_path):
     output = tmp_path / "repaired.3mf"
-    repair_embossed_paint(
-        embossed_wall_gap_3mf, output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    repair_embossed_paint(embossed_wall_gap_3mf, output, min_plane_verts=_MIN_PLANE_VERTS)
 
     with (
         zipfile.ZipFile(embossed_wall_gap_3mf) as original,
@@ -128,7 +114,5 @@ def test_repair_preserves_other_zip_entries(embossed_wall_gap_3mf, tmp_path):
 
 def test_repair_validates_output(embossed_wall_gap_3mf, tmp_path):
     output = tmp_path / "repaired.3mf"
-    result = repair_embossed_paint(
-        embossed_wall_gap_3mf, output, min_plane_verts=_MIN_PLANE_VERTS
-    )
+    result = repair_embossed_paint(embossed_wall_gap_3mf, output, min_plane_verts=_MIN_PLANE_VERTS)
     assert result["validation"]["ok"] is True

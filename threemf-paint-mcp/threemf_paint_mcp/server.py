@@ -7,7 +7,9 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 from threemf_paint_mcp import archive
+from threemf_paint_mcp.coverage import get_coverage_report as _get_coverage_report
 from threemf_paint_mcp.inspect import inspect_archive
+from threemf_paint_mcp.palette import swap_filament_palette as _swap_filament_palette
 from threemf_paint_mcp.plates import extract_plate as _extract_plate
 from threemf_paint_mcp.plates import list_plates as _list_plates
 from threemf_paint_mcp.recolor import recolor_by_name as _recolor_by_name
@@ -54,9 +56,7 @@ def recolor_slots(
 
 
 @mcp.tool()
-def recolor_by_name(
-    path: str, object_name: str, target_slot: int, output_path: str
-) -> dict:
+def recolor_by_name(path: str, object_name: str, target_slot: int, output_path: str) -> dict:
     """Recolor every object whose name matches `object_name` to `target_slot`.
 
     Matches (case-insensitive substring) against the object `name`
@@ -129,6 +129,40 @@ def repair_embossed_paint(
         min_painted_fraction=min_painted_fraction,
         dry_run=dry_run,
     )
+
+
+@mcp.tool()
+def swap_filament_palette(path: str, mapping: dict[str, str], output_path: str) -> dict:
+    """Reassign filament slot colors without touching any painted triangle.
+
+    `mapping` is {slot_number: new_hex_color} (slot numbers from
+    inspect_3mf's filament_palette, hex as "#RRGGBB" or "#RRGGBBAA"). This
+    is the complement of recolor_slots: recolor_slots changes which slot a
+    triangle uses, this changes what a slot's color *is* -- e.g. "slot 3 is
+    now this orange instead of that yellow" without repainting anything.
+    Slots not mentioned in `mapping` are left unchanged. Raises if a slot
+    isn't in the current palette or a color isn't valid hex. Reports
+    `already_correct: true` and writes nothing if the requested colors
+    already match.
+    """
+    return _swap_filament_palette(path, mapping, output_path)
+
+
+@mcp.tool()
+def get_paint_coverage_report(path: str, object_ids: list[str] | None = None) -> dict:
+    """Report actual painted surface area per object per slot, not just triangle counts.
+
+    Triangle counts (inspect_3mf's paint_usage_by_slot) can be misleading:
+    a handful of large unpainted triangles can be most of the visible
+    surface even if they're a small fraction of the triangle count, or vice
+    versa. This computes each triangle's real area from its vertex
+    positions and buckets it per object into unpainted_area, split_area
+    (multi-region/subdivided triangles -- never guessed at, reported
+    separately), and area_by_slot. Pass `object_ids` (root-level object ids
+    from inspect_3mf's `objects[].object_id`) to scope to specific objects.
+    Read-only -- makes no changes to the archive.
+    """
+    return _get_coverage_report(path, object_ids=object_ids)
 
 
 @mcp.tool()

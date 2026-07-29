@@ -446,3 +446,59 @@ Test coverage in `tests/test_recolor.py` (`build_named_objects_fixture` in
 the id-space bridge) covers: `object_ids` scoping leaving an out-of-scope
 object's same-slot paint untouched, a missing `object_ids` entry raising,
 name matching, no-match raising, and the already-correct no-write case.
+
+### Tool: `swap_filament_palette`
+
+The complement of `recolor_slots`: that tool changes which slot a triangle
+uses, this one changes what a slot's color *is*. Implemented in
+[palette.py](threemf_paint_mcp/palette.py) — pure JSON edit of
+`filament_colour` in `project_settings.config`, no XML/triangle data
+touched at all.
+
+```python
+swap_filament_palette(
+    path: str,
+    mapping: dict[str, str],  # {slot_number: new_hex_color}
+    output_path: str,
+) -> dict
+```
+
+Validates hex format (`#RRGGBB` or `#RRGGBBAA`) and that every requested
+slot exists in the current palette before writing anything; raises
+`PaletteError` otherwise. Reports `already_correct: true` / `output_path:
+None` and writes nothing if the requested colors already match. Returns
+`colours_changed: {slot: {"old": ..., "new": ...}}` for only the slots that
+actually changed, plus the standard `validation` result.
+
+### Tool: `get_paint_coverage_report`
+
+Read-only diagnostic implemented in
+[coverage.py](threemf_paint_mcp/coverage.py). `inspect_3mf`'s
+`paint_usage_by_slot` counts painted *leaf regions*, which can be
+misleading — a handful of large unpainted triangles can dominate the
+visible surface even at a small triangle-count share (the emboss
+side-wall trap in miniature, generalized to any object rather than only
+plane-detectable ones). This computes each triangle's real surface area
+from its vertex positions and buckets it into `area_by_slot`,
+`unpainted_area`, and `split_area` (multi-region/subdivided triangles —
+never apportioned to a slot, same "don't guess inside a split node" rule
+as `recolor.py`/`repair_emboss.py`), per object.
+
+```python
+get_paint_coverage_report(
+    path: str,
+    object_ids: list[str] | None = None,  # root-level ids, scopes the report
+) -> dict
+```
+
+Reuses `threemf_model.ObjectRef` purely to resolve mesh-internal object ids
+back to the root-level id `inspect_3mf` uses, so results are keyed the same
+way as every other tool's `object_ids`. Makes no archive changes.
+
+Test coverage in `tests/test_coverage.py` covers: area computation against
+known right-triangle geometry, split-region triangles landing in
+`split_area` rather than a slot, per-object reporting via
+`build_named_objects_fixture`, `object_ids` scoping and its missing-id
+error, a fully unpainted mesh, and reusing the emboss wall-gap fixture to
+show `painted_fraction` surfacing a defect that a triangle-count-only view
+would understate.

@@ -10,9 +10,7 @@ def test_inspect_single_object_fixture(single_object_3mf):
         "3": "#00FF00",
         "4": "#0000FF",
     }
-    assert result["objects"] == [
-        {"object_id": "1", "base_extruder_slot": 1, "name": None}
-    ]
+    assert result["objects"] == [{"object_id": "1", "base_extruder_slot": 1, "name": None}]
     # PAINT_LEAF_SLOT_4 -> one leaf of state 4.
     # PAINT_SPLIT_MIXED -> leaves of state 4, 1, 0 (0 is the "unpainted" leaf).
     assert result["paint_usage_by_slot"] == {"1": 1, "4": 2}

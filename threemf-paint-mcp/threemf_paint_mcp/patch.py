@@ -44,9 +44,7 @@ def apply_triangle_decisions(text: str, decisions: list[str | None]) -> tuple[st
         tag_text = match.group(0)
         if decision is not None:
             if 'paint_color="' in tag_text:
-                new_tag = _PAINT_COLOR_ATTR_RE.sub(
-                    f'paint_color="{decision}"', tag_text
-                )
+                new_tag = _PAINT_COLOR_ATTR_RE.sub(f'paint_color="{decision}"', tag_text)
             else:
                 new_tag = tag_text[:-2].rstrip() + f' paint_color="{decision}"/>'
             pieces.append(new_tag)

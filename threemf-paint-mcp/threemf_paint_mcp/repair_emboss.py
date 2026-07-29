@@ -71,9 +71,7 @@ def _parse_meshes(root: ET.Element) -> list[_MeshData]:
                 if v1 is None or v2 is None or v3 is None:
                     continue
                 paint_color = threemf_model.find_attr(triangle, "paint_color")
-                triangles.append(
-                    _TriangleInfo(int(v1), int(v2), int(v3), paint_color or None)
-                )
+                triangles.append(_TriangleInfo(int(v1), int(v2), int(v3), paint_color or None))
             meshes.append(_MeshData(object_id, vertices_z, triangles))
     return meshes
 
@@ -163,9 +161,7 @@ def _select_detail_plane(
     if target_z is not None:
         plane_id = min(range(len(stats)), key=lambda i: abs(stats[i]["z"] - target_z))
     else:
-        candidates = [
-            i for i, s in enumerate(stats) if s["vertex_count"] >= min_plane_verts
-        ]
+        candidates = [i for i, s in enumerate(stats) if s["vertex_count"] >= min_plane_verts]
         if not candidates:
             return {
                 "planes": stats,

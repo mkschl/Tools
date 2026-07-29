@@ -7,9 +7,7 @@ from threemf_paint_mcp.recolor import RecolorError, recolor_by_name, recolor_slo
 from threemf_paint_mcp.threemf_model import ROOT_MODEL
 
 
-def test_recolor_remaps_slot_across_plain_and_subdivided_triangles(
-    single_object_3mf, tmp_path
-):
+def test_recolor_remaps_slot_across_plain_and_subdivided_triangles(single_object_3mf, tmp_path):
     output = tmp_path / "recolored.3mf"
     summary = recolor_slots(single_object_3mf, {"4": 2}, output)
 
@@ -69,13 +67,9 @@ def test_recolor_object_ids_missing_raises(named_objects_3mf, tmp_path):
         recolor_slots(named_objects_3mf, {"4": 1}, output, object_ids=["999"])
 
 
-def test_recolor_by_name_matches_case_insensitive_substring(
-    named_objects_3mf, tmp_path
-):
+def test_recolor_by_name_matches_case_insensitive_substring(named_objects_3mf, tmp_path):
     output = tmp_path / "recolored.3mf"
-    result = recolor_by_name(
-        named_objects_3mf, "text", target_slot=1, output_path=output
-    )
+    result = recolor_by_name(named_objects_3mf, "text", target_slot=1, output_path=output)
 
     assert result["matched_object_ids"] == ["1"]
     assert result["matched_object_names"] == ["Text"]
@@ -90,17 +84,13 @@ def test_recolor_by_name_matches_case_insensitive_substring(
 def test_recolor_by_name_no_match_raises(named_objects_3mf, tmp_path):
     output = tmp_path / "recolored.3mf"
     with pytest.raises(RecolorError, match="no object name matches"):
-        recolor_by_name(
-            named_objects_3mf, "Nonexistent", target_slot=1, output_path=output
-        )
+        recolor_by_name(named_objects_3mf, "Nonexistent", target_slot=1, output_path=output)
 
 
 def test_recolor_by_name_already_correct_writes_nothing(named_objects_3mf, tmp_path):
     output = tmp_path / "recolored.3mf"
     # Text is already all slot 4 -- recoloring "Text" to slot 4 is a no-op.
-    result = recolor_by_name(
-        named_objects_3mf, "Text", target_slot=4, output_path=output
-    )
+    result = recolor_by_name(named_objects_3mf, "Text", target_slot=4, output_path=output)
 
     assert result["already_correct"] is True
     assert result["output_path"] is None

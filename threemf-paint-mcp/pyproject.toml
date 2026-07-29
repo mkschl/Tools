@@ -9,6 +9,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "ruff>=0.4",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
 ]
@@ -25,3 +26,7 @@ packages = ["threemf_paint_mcp", "reference"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

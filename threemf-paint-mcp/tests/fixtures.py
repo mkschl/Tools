@@ -18,6 +18,8 @@ PAINT_SPLIT_MIXED = encode(
     Split(special_side=0, children=(Leaf(state=4), Leaf(state=1), Leaf(state=0)))
 )
 PAINT_LEAF_SLOT_1 = encode(Leaf(state=1))
+PAINT_SLOT_2 = encode(Leaf(state=2))
+PAINT_SLOT_3 = encode(Leaf(state=3))
 
 
 def _object_model_xml(object_id: str, paint_colors: list[str]) -> bytes:
@@ -63,9 +65,18 @@ def _root_model_xml(objects: list[tuple[str, str, str]]) -> bytes:
     return xml.encode("utf-8")
 
 
-def _model_settings_xml(objects: list[str], plates: list[dict]) -> bytes:
+def _model_settings_xml(
+    objects: list[str], plates: list[dict], object_names: dict[str, str] | None = None
+) -> bytes:
+    object_names = object_names or {}
     object_blocks = "".join(
-        f'<object id="{oid}"><metadata key="extruder" value="1"/></object>'
+        f'<object id="{oid}"><metadata key="extruder" value="1"/>'
+        + (
+            f'<metadata key="name" value="{object_names[oid]}"/>'
+            if oid in object_names
+            else ""
+        )
+        + "</object>"
         for oid in objects
     )
     plate_blocks = []
@@ -110,6 +121,217 @@ def build_single_object_fixture(tmp_path: Path) -> Path:
     )
 
     out = tmp_path / "single_object.3mf"
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("3D/3dmodel.model", root_model)
+        zf.writestr("3D/Objects/object_1.model", object_model)
+        zf.writestr("Metadata/model_settings.config", model_settings)
+        zf.writestr("Metadata/project_settings.config", project_settings)
+    return out
+
+
+def build_named_objects_fixture(tmp_path: Path) -> Path:
+    """Two named, separately-filed objects sharing a paint slot -- for object_ids/name scoping.
+
+    Root object id "1" (name "Text") and root id "2" (name "Base") each
+    reference their own 3D/Objects/*.model file, whose *internal* <object
+    id> ("10"/"20") deliberately differs from the root id -- this is the
+    id-space split `threemf_model.ObjectRef` exists to bridge, and both
+    objects paint slot 4 so scoped-vs-unscoped recolors are distinguishable.
+    """
+    text_object = _object_model_xml(
+        object_id="10", paint_colors=[PAINT_LEAF_SLOT_4, PAINT_LEAF_SLOT_4]
+    )
+    base_object = _object_model_xml(object_id="20", paint_colors=[PAINT_LEAF_SLOT_4])
+
+    root_model = _root_model_xml(
+        [
+            ("1", "10", "3D/Objects/object_text.model"),
+            ("2", "20", "3D/Objects/object_base.model"),
+        ]
+    )
+    model_settings = _model_settings_xml(
+        objects=["1", "2"],
+        plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1", "2"]}],
+        object_names={"1": "Text", "2": "Base"},
+    )
+    project_settings = _project_settings_json(
+        ["#000000", "#FF0000", "#00FF00", "#0000FF"]
+    )
+
+    out = tmp_path / "named_objects.3mf"
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("3D/3dmodel.model", root_model)
+        zf.writestr("3D/Objects/object_text.model", text_object)
+        zf.writestr("3D/Objects/object_base.model", base_object)
+        zf.writestr("Metadata/model_settings.config", model_settings)
+        zf.writestr("Metadata/project_settings.config", project_settings)
+    return out
+
+
+def _object_model_xml_explicit(
+    object_id: str,
+    vertices: list[tuple[float, float, float]],
+    triangles: list[tuple[int, int, int, str | None]],
+) -> bytes:
+    """Build an object .model file from explicit vertex coordinates and triangle refs.
+
+    Used for the emboss/plane-detection fixtures below, where (unlike the
+    generic single/multi-plate fixtures) the actual Z coordinates and which
+    triangles are painted matter to the test.
+    """
+    vertex_xml = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in vertices)
+    triangle_xml = "".join(
+        f'<triangle v1="{v1}" v2="{v2}" v3="{v3}"'
+        + (f' paint_color="{pc}"' if pc else "")
+        + "/>"
+        for v1, v2, v3, pc in triangles
+    )
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="{CORE_NS}" unit="millimeter">
+  <resources>
+    <object id="{object_id}" type="model">
+      <mesh>
+        <vertices>{vertex_xml}</vertices>
+        <triangles>{triangle_xml}</triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build/>
+</model>"""
+    return xml.encode("utf-8")
+
+
+def _embossed_box_vertices() -> list[tuple[float, float, float]]:
+    # A unit cube: plate-top face at z=0 (vertices 0-3), glyph/detail face
+    # at z=1 (vertices 4-7). Side walls connect the two.
+    return [
+        (0, 0, 0),
+        (1, 0, 0),
+        (1, 1, 0),
+        (0, 1, 0),
+        (0, 0, 1),
+        (1, 0, 1),
+        (1, 1, 1),
+        (0, 1, 1),
+    ]
+
+
+def _embossed_box_triangles(
+    top_paint: str | None, wall_paint: str | None
+) -> list[tuple[int, int, int, str | None]]:
+    plate_top = [(0, 1, 2, None), (0, 2, 3, None)]
+    glyph_top = [(4, 5, 6, top_paint), (4, 6, 7, top_paint)]
+    walls = [
+        (0, 1, 5, wall_paint),
+        (0, 5, 4, wall_paint),
+        (1, 2, 6, wall_paint),
+        (1, 6, 5, wall_paint),
+        (2, 3, 7, wall_paint),
+        (2, 7, 6, wall_paint),
+        (3, 0, 4, wall_paint),
+        (3, 4, 7, wall_paint),
+    ]
+    return plate_top + glyph_top + walls
+
+
+def _embossed_fixture_archive(
+    tmp_path: Path, name: str, top_paint: str | None, wall_paint: str | None
+) -> Path:
+    """A raised-glyph box: plate top z=0 (base slot), detail top z=1.
+
+    Glyph top faces carry `top_paint`; side walls carry `wall_paint` -- set
+    `wall_paint=None` to reproduce the emboss side-wall trap (top painted,
+    walls left at base colour).
+    """
+    object_model = _object_model_xml_explicit(
+        object_id="2",
+        vertices=_embossed_box_vertices(),
+        triangles=_embossed_box_triangles(top_paint, wall_paint),
+    )
+    root_model = _root_model_xml([("1", "2", "3D/Objects/object_1.model")])
+    model_settings = _model_settings_xml(
+        objects=["1"],
+        plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1"]}],
+    )
+    project_settings = _project_settings_json(["#000000", "#FF0000", "#00FF00"])
+
+    out = tmp_path / name
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("3D/3dmodel.model", root_model)
+        zf.writestr("3D/Objects/object_1.model", object_model)
+        zf.writestr("Metadata/model_settings.config", model_settings)
+        zf.writestr("Metadata/project_settings.config", project_settings)
+    return out
+
+
+def build_embossed_wall_gap_fixture(tmp_path: Path) -> Path:
+    """Glyph top (z=1) fully painted slot 2; side walls left unpainted -- the defect."""
+    return _embossed_fixture_archive(
+        tmp_path, "embossed_wall_gap.3mf", top_paint=PAINT_SLOT_2, wall_paint=None
+    )
+
+
+def build_embossed_repaired_fixture(tmp_path: Path) -> Path:
+    """Same shape, but walls already painted too -- repair should be a no-op."""
+    return _embossed_fixture_archive(
+        tmp_path,
+        "embossed_repaired.3mf",
+        top_paint=PAINT_SLOT_2,
+        wall_paint=PAINT_SLOT_2,
+    )
+
+
+def build_unpainted_box_fixture(tmp_path: Path) -> Path:
+    """Same shape, nothing painted anywhere -- repair should refuse to guess."""
+    return _embossed_fixture_archive(
+        tmp_path, "unpainted_box.3mf", top_paint=None, wall_paint=None
+    )
+
+
+def build_engraved_fixture(tmp_path: Path) -> Path:
+    """Recessed detail: plate top z=1 (unpainted), engraved floor z=0 (painted slot 3).
+
+    Detail-plane detection must pick the painted floor, not the (unpainted,
+    but otherwise identical) top surface -- this is the case a
+    topmost-plane heuristic would get wrong.
+    """
+    vertices: list[tuple[float, float, float]] = [
+        (0, 0, 1),
+        (1, 0, 1),
+        (1, 1, 1),
+        (0, 1, 1),
+        (0, 0, 0),
+        (1, 0, 0),
+        (1, 1, 0),
+        (0, 1, 0),
+    ]
+    triangles = [
+        (0, 1, 2, None),
+        (0, 2, 3, None),
+        (4, 5, 6, PAINT_SLOT_3),
+        (4, 6, 7, PAINT_SLOT_3),
+        (0, 1, 5, None),
+        (0, 5, 4, None),
+        (1, 2, 6, None),
+        (1, 6, 5, None),
+        (2, 3, 7, None),
+        (2, 7, 6, None),
+        (3, 0, 4, None),
+        (3, 4, 7, None),
+    ]
+    object_model = _object_model_xml_explicit(
+        object_id="2", vertices=vertices, triangles=triangles
+    )
+    root_model = _root_model_xml([("1", "2", "3D/Objects/object_1.model")])
+    model_settings = _model_settings_xml(
+        objects=["1"],
+        plates=[{"plater_id": "1", "plater_name": "Plate 1", "object_ids": ["1"]}],
+    )
+    project_settings = _project_settings_json(
+        ["#000000", "#FF0000", "#00FF00", "#FFFF00"]
+    )
+
+    out = tmp_path / "engraved.3mf"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("3D/3dmodel.model", root_model)
         zf.writestr("3D/Objects/object_1.model", object_model)

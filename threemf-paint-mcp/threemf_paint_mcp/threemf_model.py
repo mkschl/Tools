@@ -69,6 +69,74 @@ def get_object_base_extruders(zf: zipfile.ZipFile) -> dict[str, int]:
     return result
 
 
+def get_object_names(zf: zipfile.ZipFile) -> dict[str, str]:
+    """Return {object_id: name} from model_settings.config, for objects that have one.
+
+    Bambu Studio writes the outliner name a user gave an object (e.g.
+    "Text") here as `<metadata key="name" value="...">`, keyed by the same
+    root-level object id as `get_object_base_extruders` -- not necessarily
+    every object has one.
+    """
+    if MODEL_SETTINGS not in zf.namelist():
+        return {}
+    root = read_xml(zf, MODEL_SETTINGS)
+    result: dict[str, str] = {}
+    for obj in iter_local(root, "object"):
+        object_id = find_attr(obj, "id")
+        if object_id is None:
+            continue
+        for meta in iter_local(obj, "metadata"):
+            if find_attr(meta, "key") == "name":
+                value = find_attr(meta, "value")
+                if value is not None:
+                    result[object_id] = value
+    return result
+
+
+@dataclass(frozen=True)
+class ObjectRef:
+    """Where one root-level object's mesh triangles actually live.
+
+    `root_object_id` is the id `model_settings.config` (extruder, name) and
+    plate `model_instance` references use. `model_path` + `mesh_object_id`
+    is where its `<triangle>` elements are: either the object embeds its
+    own `<mesh>` directly in the root model (`model_path == ROOT_MODEL`,
+    `mesh_object_id == root_object_id`), or the root `<object>` only holds
+    `<component objectid="..." p:path="...">` pointers into a
+    `3D/Objects/*.model` file -- whose internal `<object id>` is a
+    *different* id space from the root object id. One root object can have
+    several component refs (and thus several entries here).
+    """
+
+    root_object_id: str
+    model_path: str
+    mesh_object_id: str
+
+
+def get_object_refs(zf: zipfile.ZipFile) -> list[ObjectRef]:
+    """Every root-level object's mesh location(s), across the whole archive."""
+    if ROOT_MODEL not in zf.namelist():
+        return []
+    root = read_xml(zf, ROOT_MODEL)
+    refs: list[ObjectRef] = []
+    for obj in iter_local(root, "object"):
+        root_id = find_attr(obj, "id")
+        if root_id is None:
+            continue
+        components = list(iter_local(obj, "component"))
+        if components:
+            for component in components:
+                mesh_id = find_attr(component, "objectid")
+                if mesh_id is None:
+                    continue
+                path = find_attr(component, "path")
+                model_path = path.lstrip("/") if path else ROOT_MODEL
+                refs.append(ObjectRef(root_id, model_path, mesh_id))
+        elif list(iter_local(obj, "mesh")):
+            refs.append(ObjectRef(root_id, ROOT_MODEL, root_id))
+    return refs
+
+
 def find_referenced_object_paths(zf: zipfile.ZipFile) -> set[str]:
     """Every `3D/Objects/*.model` file referenced via <component p:path=...>."""
     if ROOT_MODEL not in zf.namelist():

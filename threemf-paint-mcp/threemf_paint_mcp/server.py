@@ -10,7 +10,11 @@ from threemf_paint_mcp import archive
 from threemf_paint_mcp.inspect import inspect_archive
 from threemf_paint_mcp.plates import extract_plate as _extract_plate
 from threemf_paint_mcp.plates import list_plates as _list_plates
+from threemf_paint_mcp.recolor import recolor_by_name as _recolor_by_name
 from threemf_paint_mcp.recolor import recolor_slots as _recolor_slots
+from threemf_paint_mcp.repair_emboss import (
+    repair_embossed_paint as _repair_embossed_paint,
+)
 
 mcp = FastMCP("threemf-paint-mcp")
 
@@ -29,17 +33,43 @@ def inspect_3mf(path: str) -> dict:
 
 
 @mcp.tool()
-def recolor_slots(path: str, mapping: dict[str, int], output_path: str) -> dict:
-    """Remap filament slots across every painted triangle in a .3mf.
+def recolor_slots(
+    path: str,
+    mapping: dict[str, int],
+    output_path: str,
+    object_ids: list[str] | None = None,
+) -> dict:
+    """Remap filament slots across painted triangles in a .3mf.
 
     `mapping` is {old_slot: new_slot} (slot numbers as given by inspect_3mf).
-    Applies across every object .model file in the archive, decodes each
-    distinct paint_color value once, verifies round-trip and split-tree
-    structure before trusting the remap, and writes the result via
-    in-place ZIP entry updates. Runs validation on the output before
+    By default applies across every object .model file in the archive;
+    pass `object_ids` (root-level object ids from inspect_3mf's
+    `objects[].object_id`) to scope the remap to specific objects only.
+    Decodes each affected paint_color value once, verifies round-trip and
+    split-tree structure before trusting the remap, and writes the result
+    via in-place ZIP entry updates. Runs validation on the output before
     returning.
     """
-    return _recolor_slots(path, mapping, output_path)
+    return _recolor_slots(path, mapping, output_path, object_ids=object_ids)
+
+
+@mcp.tool()
+def recolor_by_name(
+    path: str, object_name: str, target_slot: int, output_path: str
+) -> dict:
+    """Recolor every object whose name matches `object_name` to `target_slot`.
+
+    Matches (case-insensitive substring) against the object `name`
+    inspect_3mf exposes per object -- the name a user gave the object in
+    Bambu Studio's outliner (e.g. "Text"). Remaps every filament slot
+    currently painted anywhere on the matched objects to `target_slot`;
+    look up `target_slot` from inspect_3mf's filament_palette first (e.g.
+    the slot whose hex is #000000 for "black"). Refuses (raises) rather
+    than silently doing nothing if no object name matches. Does not touch
+    triangles with no paint_color attribute at all -- those inherit the
+    object's base extruder, which is separate from triangle paint data.
+    """
+    return _recolor_by_name(path, object_name, target_slot, output_path)
 
 
 @mcp.tool()
@@ -61,6 +91,44 @@ def extract_plate(path: str, plater_id: str, output_path: str) -> dict:
     sample (e.g. whether AMS/filament-map config is ever per-plate).
     """
     return _extract_plate(path, plater_id, output_path)
+
+
+@mcp.tool()
+def repair_embossed_paint(
+    path: str,
+    output_path: str,
+    slot: int | None = None,
+    target_z: float | None = None,
+    plane_tol: float = 1e-3,
+    min_plane_verts: int = 32,
+    min_painted_fraction: float = 0.5,
+    dry_run: bool = False,
+) -> dict:
+    """Finish a partial paint job on raised or engraved detail (the emboss side-wall trap).
+
+    Bambu Studio's paint brush only marks faces visible from the current
+    camera angle, so glyph top faces often end up painted while their
+    vertical side walls don't -- the preview looks fine from directly
+    overhead but the model prints with a rim of base colour around every
+    letter. This clusters mesh vertices into Z planes, finds the plane the
+    user already painted (highest painted fraction of its flat faces --
+    works for both raised and engraved detail, no mode flag needed), and
+    paints every triangle touching that plane with the slot already in use
+    there. Refuses rather than guesses when no plane carries existing
+    paint; pass `slot` and `target_z` to override explicitly. Idempotent --
+    a second run reports `already_complete` and writes nothing. Set
+    `dry_run=True` to preview counts without writing.
+    """
+    return _repair_embossed_paint(
+        path,
+        output_path,
+        slot=slot,
+        target_z=target_z,
+        plane_tol=plane_tol,
+        min_plane_verts=min_plane_verts,
+        min_painted_fraction=min_painted_fraction,
+        dry_run=dry_run,
+    )
 
 
 @mcp.tool()

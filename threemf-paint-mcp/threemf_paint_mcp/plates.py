@@ -58,7 +58,9 @@ def _serialize(root: ET.Element) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def _filter_root_model(xml_bytes: bytes, keep_object_ids: set[str]) -> tuple[bytes, set[str]]:
+def _filter_root_model(
+    xml_bytes: bytes, keep_object_ids: set[str]
+) -> tuple[bytes, set[str]]:
     _register_original_namespaces(xml_bytes)
     root = ET.fromstring(xml_bytes)
 
@@ -98,17 +100,18 @@ def _filter_model_settings(
     for parent in root.iter():
         for child in list(parent):
             name = threemf_model.local_name(child.tag)
-            if name == "object" and threemf_model.find_attr(child, "id") not in keep_object_ids:
-                parent.remove(child)
-            elif name == "plate" and not any(
-                threemf_model.find_attr(meta, "key") == "plater_id"
-                and threemf_model.find_attr(meta, "value") == target_plater_id
-                for meta in threemf_model.iter_local(child, "metadata")
+            if (
+                name == "object"
+                and threemf_model.find_attr(child, "id") not in keep_object_ids
+                or name == "plate"
+                and not any(
+                    threemf_model.find_attr(meta, "key") == "plater_id"
+                    and threemf_model.find_attr(meta, "value") == target_plater_id
+                    for meta in threemf_model.iter_local(child, "metadata")
+                )
+                or name == "assemble_item"
+                and threemf_model.find_attr(child, "object_id") not in keep_object_ids
             ):
-                parent.remove(child)
-            elif name == "assemble_item" and threemf_model.find_attr(
-                child, "object_id"
-            ) not in keep_object_ids:
                 parent.remove(child)
 
     return _serialize(root)
@@ -141,14 +144,18 @@ def extract_plate(path: str | Path, plater_id: str, output_path: str | Path) -> 
             if name.startswith("3D/Objects/") and name not in referenced_paths:
                 del new_entries[name]
     else:
-        warnings.append(f"{threemf_model.ROOT_MODEL} missing; skipped root-model filtering")
+        warnings.append(
+            f"{threemf_model.ROOT_MODEL} missing; skipped root-model filtering"
+        )
 
     if threemf_model.MODEL_SETTINGS in entries:
         new_entries[threemf_model.MODEL_SETTINGS] = _filter_model_settings(
             entries[threemf_model.MODEL_SETTINGS], keep_object_ids, plater_id
         )
     else:
-        warnings.append(f"{threemf_model.MODEL_SETTINGS} missing; skipped plate/object filtering")
+        warnings.append(
+            f"{threemf_model.MODEL_SETTINGS} missing; skipped plate/object filtering"
+        )
 
     for name in list(new_entries):
         base = name.rsplit("/", 1)[-1]
@@ -159,7 +166,10 @@ def extract_plate(path: str | Path, plater_id: str, output_path: str | Path) -> 
         if f"_{plater_id}." not in base and not base.endswith(f"_{plater_id}"):
             del new_entries[name]
 
-    for config_name in ("Metadata/project_settings.config", "Metadata/filament_sequence.json"):
+    for config_name in (
+        "Metadata/project_settings.config",
+        "Metadata/filament_sequence.json",
+    ):
         if config_name in entries:
             warnings.append(
                 f"{config_name} copied as-is (assumed project-wide, not per-plate -- "
@@ -190,7 +200,9 @@ def extract_plate(path: str | Path, plater_id: str, output_path: str | Path) -> 
     return {
         "output_path": str(output_path),
         "plater_id": plater_id,
-        "object_ids": sorted(keep_object_ids, key=lambda x: int(x) if x.isdigit() else x),
+        "object_ids": sorted(
+            keep_object_ids, key=lambda x: int(x) if x.isdigit() else x
+        ),
         "validation": validation,
         "warnings": warnings,
     }

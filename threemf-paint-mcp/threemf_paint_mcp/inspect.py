@@ -14,6 +14,7 @@ def inspect_archive(path: str | Path) -> dict:
     with zipfile.ZipFile(path) as zf:
         palette = threemf_model.get_filament_colours(zf)
         base_extruders = threemf_model.get_object_base_extruders(zf)
+        object_names = threemf_model.get_object_names(zf)
         model_paths = threemf_model.all_model_paths(zf)
 
         usage: Counter[int] = Counter()
@@ -24,13 +25,22 @@ def inspect_archive(path: str | Path) -> dict:
                     usage[state] += 1
 
     unpainted_regions = usage.pop(0, 0)
+    all_object_ids = set(base_extruders) | set(object_names)
     objects = [
-        {"object_id": object_id, "base_extruder_slot": slot}
-        for object_id, slot in sorted(base_extruders.items(), key=lambda kv: int(kv[0]))
+        {
+            "object_id": object_id,
+            "base_extruder_slot": base_extruders.get(object_id),
+            "name": object_names.get(object_id),
+        }
+        for object_id in sorted(all_object_ids, key=int)
     ]
     return {
-        "filament_palette": {str(slot): colour for slot, colour in sorted(palette.items())},
+        "filament_palette": {
+            str(slot): colour for slot, colour in sorted(palette.items())
+        },
         "objects": objects,
-        "paint_usage_by_slot": {str(slot): count for slot, count in sorted(usage.items())},
+        "paint_usage_by_slot": {
+            str(slot): count for slot, count in sorted(usage.items())
+        },
         "unpainted_leaf_regions": unpainted_regions,
     }

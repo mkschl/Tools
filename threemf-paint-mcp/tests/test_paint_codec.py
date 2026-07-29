@@ -17,13 +17,11 @@ SAMPLE_VALUES_PATH = (
     Path(__file__).parent / "fixtures" / "sample_paint_color_values.txt"
 )
 SAMPLE_VALUES = [
-    line.strip()
-    for line in SAMPLE_VALUES_PATH.read_text().splitlines()
-    if line.strip()
+    line.strip() for line in SAMPLE_VALUES_PATH.read_text().splitlines() if line.strip()
 ]
 
 
-@pytest.mark.parametrize("state", range(0, 256))
+@pytest.mark.parametrize("state", range(256))
 def test_every_leaf_state_roundtrips(state):
     hex_string = encode(Leaf(state=state))
     assert decode(hex_string) == Leaf(state=state)

@@ -6,9 +6,11 @@ def test_registered_tool_names():
     assert tool_names == {
         "inspect_3mf",
         "recolor_slots",
+        "recolor_by_name",
         "list_plates",
         "extract_plate",
         "validate_3mf",
+        "repair_embossed_paint",
     }
 
 
@@ -29,6 +31,22 @@ def test_recolor_and_reinspect_round_trip(single_object_3mf, tmp_path):
 
     reinspected = server.inspect_3mf(str(output))
     assert "4" not in reinspected["paint_usage_by_slot"]
+
+
+def test_recolor_by_name_tool(named_objects_3mf, tmp_path):
+    output = tmp_path / "recolored.3mf"
+    result = server.recolor_by_name(str(named_objects_3mf), "Text", 1, str(output))
+    assert result["triangles_changed"] == 2
+    assert result["matched_object_names"] == ["Text"]
+
+
+def test_repair_embossed_paint_tool(embossed_wall_gap_3mf, tmp_path):
+    output = tmp_path / "repaired.3mf"
+    result = server.repair_embossed_paint(
+        str(embossed_wall_gap_3mf), str(output), min_plane_verts=4
+    )
+    assert result["triangles_changed"] == 8
+    assert result["validation"]["ok"] is True
 
 
 def test_list_and_extract_plate_tools(multi_plate_3mf, tmp_path):

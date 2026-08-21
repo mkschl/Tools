@@ -1,0 +1,23 @@
+// markdownlint configuration for agent-memory-mcp.
+//
+// Applied automatically whenever note_write runs its markdownlint --fix pass
+// (see agent_memory_mcp/markdownlint.py). Also picked up by editors/extensions
+// that auto-discover markdownlint config (e.g. the VS Code markdownlint
+// extension) when this repo is open.
+//
+// Full rule list: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+//
+// "default": true means every rule is enabled unless disabled below.
+// To ignore a rule, uncomment its line (drop the leading "// ,"). Each line
+// already carries its own separating comma, so you can uncomment any subset
+// in any order without needing to fix up commas yourself.
+{
+  "MD013": false // line-length
+  // ,"MD033": false // no-inline-html
+  // ,"MD041": false // first-line-heading — note_write always starts with "# <key>", so this shouldn't fire
+  // ,"MD024": false // no-duplicate-heading
+  // ,"MD025": false // single-title / single-h1
+  // ,"MD012": false // no-multiple-blanks
+  // ,"MD009": false // no-trailing-spaces
+  // ,"MD029": false // ol-prefix (ordered list numbering style)
+}

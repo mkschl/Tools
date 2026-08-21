@@ -75,6 +75,27 @@ The server exposes exactly these tools — nothing more.
   different column.
 - `kanban_read(project)` — returns the full board for a project.
 
+### Markdown linting
+
+Not a tool — an internal quality pass. `note_write` runs the note content
+through `markdownlint --fix` before saving, and appends any remaining
+(unfixable) lint issues to its result string. Decisions and kanban files are
+template-rendered, not free-form author content, so they are not linted.
+
+Implemented in `agent_memory_mcp/markdownlint.py`, which shells out to the
+system `markdownlint` binary (markdownlint-cli, npm) via `subprocess`. If the
+binary isn't on `PATH` (`shutil.which` check), linting is skipped
+gracefully — writes still succeed, just without a lint pass. Install it with
+`npm install -g markdownlint-cli` to enable it.
+
+Rules are configured in `.markdownlint.jsonc` at the repo root — edit it to
+ignore specific `MD0xx` rules (uncomment the corresponding line; each one
+already carries its own leading comma so you can uncomment any subset in any
+order). The same file is picked up by editor extensions (e.g. VS Code's
+markdownlint extension) when this repo is open, so notes get consistent
+results everywhere. Point `AGENT_MEMORY_MARKDOWNLINT_CONFIG` at a different
+config file to override the location.
+
 ## Architecture
 
 The server uses the MCP stdio transport, consistent with kubectl-mcp and

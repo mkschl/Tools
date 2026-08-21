@@ -166,7 +166,9 @@ def kanban_update_card(
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     step_list = [s.strip() for s in steps.splitlines() if s.strip()] if steps else None
     result = storage.kanban_update_card(
-        project, title, new_title,
+        project,
+        title,
+        new_title,
         description or None,
         due or None,
         tag_list,

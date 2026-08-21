@@ -15,6 +15,7 @@ def memory_root(tmp_path, monkeypatch):
 
 # ── AGENT_MEMORY_DIR validation ────────────────────────────────────────────────
 
+
 def test_agent_memory_dir_missing_raises_at_import(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_MEMORY_DIR", str(tmp_path / "nonexistent"))
     with pytest.raises(RuntimeError, match="does not exist"):
@@ -41,6 +42,7 @@ def test_agent_memory_dir_not_writable_raises_at_import(tmp_path, monkeypatch):
 
 
 # ── decision_log ───────────────────────────────────────────────────────────────
+
 
 def test_decision_log_creates_dated_file(tmp_path):
     storage.decision_log("myproject", "Use SQLite", "Simpler and sufficient")
@@ -73,6 +75,7 @@ def test_decision_log_appends_to_existing_file(tmp_path):
 
 
 # ── decision_read ──────────────────────────────────────────────────────────────
+
 
 def test_decision_read_missing_project_returns_message():
     result = storage.decision_read(project="ghost")
@@ -109,6 +112,7 @@ def test_decision_read_no_storage_root_returns_message():
 
 # ── kanban_create ──────────────────────────────────────────────────────────────
 
+
 def test_kanban_create_creates_board_with_given_columns(tmp_path):
     result = storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     assert "Created" in result
@@ -139,6 +143,7 @@ def test_kanban_create_custom_columns(tmp_path):
 
 
 # ── kanban_add_column ──────────────────────────────────────────────────────────
+
 
 def test_kanban_add_column_creates_empty_column(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
@@ -205,6 +210,7 @@ def test_kanban_add_column_after_unknown_column_returns_error():
 
 # ── kanban_add ─────────────────────────────────────────────────────────────────
 
+
 def test_kanban_add_creates_card_on_existing_board(tmp_path):
     storage.kanban_create("myproject", ["To Do", "In Progress", "Done"])
     result = storage.kanban_add("myproject", "To Do", "Fix bug #42")
@@ -257,6 +263,7 @@ def test_kanban_add_with_metadata(tmp_path):
 
 # ── kanban_move ────────────────────────────────────────────────────────────────
 
+
 def test_kanban_move_relocates_card(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     storage.kanban_add("p", "To Do", "Task A")
@@ -302,6 +309,7 @@ def test_kanban_move_case_insensitive_card_and_column(tmp_path):
 
 # ── kanban_delete_card ────────────────────────────────────────────────────────
 
+
 def test_kanban_delete_card_removes_card(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     storage.kanban_add("p", "To Do", "Remove Me")
@@ -330,6 +338,7 @@ def test_kanban_delete_card_no_board_returns_error():
 
 
 # ── kanban_delete_column ──────────────────────────────────────────────────────
+
 
 def test_kanban_delete_column_removes_empty_column(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
@@ -365,6 +374,7 @@ def test_kanban_delete_column_case_insensitive(tmp_path):
 
 
 # ── kanban_update_card ────────────────────────────────────────────────────────
+
 
 def test_kanban_update_card_renames_card(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
@@ -416,6 +426,7 @@ def test_kanban_update_card_no_board_returns_error():
 
 # ── kanban_list ───────────────────────────────────────────────────────────────
 
+
 def test_kanban_list_returns_board_names(tmp_path):
     storage.kanban_create("alpha", ["To Do", "Done"])
     storage.kanban_create("beta", ["To Do", "Done"])
@@ -430,6 +441,7 @@ def test_kanban_list_no_boards_returns_message(tmp_path):
 
 
 # ── kanban_read ────────────────────────────────────────────────────────────────
+
 
 def test_kanban_read_no_board_returns_message():
     result = storage.kanban_read("ghost-project")
@@ -446,6 +458,7 @@ def test_kanban_read_returns_board_content(tmp_path):
 
 # ── kanban_delete ─────────────────────────────────────────────────────────────
 
+
 def test_kanban_delete_removes_board(tmp_path):
     storage.kanban_create("p", ["To Do", "Done"])
     result = storage.kanban_delete("p")
@@ -459,6 +472,7 @@ def test_kanban_delete_no_board_returns_error():
 
 
 # ── kanban_rename ─────────────────────────────────────────────────────────────
+
 
 def test_kanban_rename_renames_board(tmp_path):
     storage.kanban_create("old", ["To Do", "Done"])
@@ -484,6 +498,7 @@ def test_kanban_rename_target_exists_returns_error():
 
 
 # ── kanban_search ─────────────────────────────────────────────────────────────
+
 
 def test_kanban_search_finds_card_by_title():
     storage.kanban_create("p", ["To Do", "Done"])
@@ -532,6 +547,7 @@ def test_kanban_search_case_insensitive():
 
 
 # ── notes ─────────────────────────────────────────────────────────────────────
+
 
 def test_note_write_creates_note(tmp_path):
     result = storage.note_write("p", "architecture", "We use hexagonal architecture.")
@@ -591,7 +607,31 @@ def test_note_delete_not_found_returns_error():
     assert "not found" in result.lower()
 
 
+def test_note_write_applies_markdownlint_autofix(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        storage.markdownlint, "fix_content", lambda body: (body.replace("v1", "FIXED"), [])
+    )
+    storage.note_write("p", "arch", "v1")
+    content = (tmp_path / "notes" / "p" / "arch.md").read_text()
+    assert "FIXED" in content
+
+
+def test_note_write_appends_remaining_lint_issues_to_result(monkeypatch):
+    issue = [{"ruleNames": ["MD018"], "ruleDescription": "no space", "lineNumber": 1}]
+    monkeypatch.setattr(storage.markdownlint, "fix_content", lambda body: (body, issue))
+    result = storage.note_write("p", "arch", "content")
+    assert "markdownlint issues" in result
+    assert "MD018" in result
+
+
+def test_note_write_no_lint_section_when_clean(monkeypatch):
+    monkeypatch.setattr(storage.markdownlint, "fix_content", lambda body: (body, []))
+    result = storage.note_write("p", "arch", "content")
+    assert "markdownlint issues" not in result
+
+
 # ── project_summary ───────────────────────────────────────────────────────────
+
 
 def test_project_summary_includes_kanban_and_decisions():
     storage.kanban_create("p", ["To Do", "Done"])
@@ -616,6 +656,7 @@ def test_project_summary_no_board_still_returns():
 
 
 # ── _parse_board ───────────────────────────────────────────────────────────────
+
 
 def test_parse_board_extracts_title_columns_and_cards():
     content = """\

@@ -8,6 +8,9 @@ from jinja2 import Environment, FileSystemLoader
 
 import os
 
+from agent_memory_mcp import markdownlint
+
+
 def _check_storage_dir(path: Path, label: str) -> None:
     if not path.is_dir():
         raise RuntimeError(
@@ -19,9 +22,7 @@ def _check_storage_dir(path: Path, label: str) -> None:
         probe.write_text("ok")
         probe.unlink()
     except OSError as exc:
-        raise RuntimeError(
-            f"{label}={str(path)!r} is not writable: {exc}"
-        ) from exc
+        raise RuntimeError(f"{label}={str(path)!r} is not writable: {exc}") from exc
 
 
 _env_dir = os.environ.get("AGENT_MEMORY_DIR")
@@ -231,11 +232,15 @@ def kanban_add_column(project: str, column: str, after: str = "") -> str:
         return f"No board found for project '{project}'. Create one first with kanban_create."
     board_title, columns = board
 
-    existing_idx = next((i for i, c in enumerate(columns) if c.name.lower() == column.lower()), None)
+    existing_idx = next(
+        (i for i, c in enumerate(columns) if c.name.lower() == column.lower()), None
+    )
     new_col = columns[existing_idx] if existing_idx is not None else Column(name=column)
 
     if after:
-        after_idx = next((i for i, c in enumerate(columns) if c.name.lower() == after.lower()), None)
+        after_idx = next(
+            (i for i, c in enumerate(columns) if c.name.lower() == after.lower()), None
+        )
         if after_idx is None:
             return f"Column '{after}' not found. Available: {[c.name for c in columns]}"
         if existing_idx is not None:
@@ -445,8 +450,12 @@ def note_write(project: str, key: str, content: str) -> str:
     d = _notes_dir(project)
     d.mkdir(parents=True, exist_ok=True)
     body = f"# {key}\n\n_Updated: {date.today().isoformat()}_\n\n{content}\n"
-    (d / f"{key}.md").write_text(body)
-    return f"Written note '{key}' for project '{project}'."
+    fixed_body, remaining_issues = markdownlint.fix_content(body)
+    (d / f"{key}.md").write_text(fixed_body)
+    result = f"Written note '{key}' for project '{project}'."
+    if remaining_issues:
+        result += f"\n\nmarkdownlint issues:\n{markdownlint.format_issues(remaining_issues)}"
+    return result
 
 
 def note_read(project: str, key: str) -> str:

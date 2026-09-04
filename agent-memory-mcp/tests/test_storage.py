@@ -45,7 +45,7 @@ def test_agent_memory_dir_not_writable_raises_at_import(tmp_path, monkeypatch):
 
 
 def test_decision_log_creates_dated_file(tmp_path):
-    storage.decision_log("myproject", "Use SQLite", "Simpler and sufficient")
+    storage.decision_log("myproject", "Use SQLite", "Simpler and sufficient", create=True)
     path = tmp_path / "decisions" / "myproject" / f"{date.today().isoformat()}.md"
     assert path.exists()
     content = path.read_text()
@@ -54,7 +54,7 @@ def test_decision_log_creates_dated_file(tmp_path):
 
 
 def test_decision_log_header_written_once_for_new_file(tmp_path):
-    storage.decision_log("p1", "D1", "R1")
+    storage.decision_log("p1", "D1", "R1", create=True)
     storage.decision_log("p1", "D2", "R2")
     path = tmp_path / "decisions" / "p1" / f"{date.today().isoformat()}.md"
     content = path.read_text()
@@ -66,7 +66,7 @@ def test_decision_log_header_written_once_for_new_file(tmp_path):
 
 def test_decision_log_appends_to_existing_file(tmp_path):
     for summary in ("First", "Second", "Third"):
-        storage.decision_log("p", summary, "reason")
+        storage.decision_log("p", summary, "reason", create=True)
     path = tmp_path / "decisions" / "p" / f"{date.today().isoformat()}.md"
     content = path.read_text()
     assert "First" in content
@@ -83,7 +83,7 @@ def test_decision_read_missing_project_returns_message():
 
 
 def test_decision_read_returns_logged_decision():
-    storage.decision_log("alpha", "Pick PostgreSQL", "ACID compliance required")
+    storage.decision_log("alpha", "Pick PostgreSQL", "ACID compliance required", create=True)
     result = storage.decision_read(project="alpha", days=1)
     assert "Pick PostgreSQL" in result
 
@@ -98,8 +98,8 @@ def test_decision_read_excludes_files_outside_window(tmp_path):
 
 
 def test_decision_read_all_projects_when_none_specified():
-    storage.decision_log("proj-a", "Decision 1", "R1")
-    storage.decision_log("proj-b", "Decision 2", "R2")
+    storage.decision_log("proj-a", "Decision 1", "R1", create=True)
+    storage.decision_log("proj-b", "Decision 2", "R2", create=True)
     result = storage.decision_read(project=None, days=1)
     assert "Decision 1" in result
     assert "Decision 2" in result
@@ -497,6 +497,43 @@ def test_kanban_rename_target_exists_returns_error():
     assert "already exists" in result.lower()
 
 
+def test_kanban_rename_recasing_own_name_succeeds(tmp_path):
+    storage.kanban_create("JobSearch", ["To Do", "Done"])
+    result = storage.kanban_rename("JobSearch", "jobsearch")
+    assert "already exists" not in result.lower()
+    assert "renamed" in result.lower()
+    assert list((tmp_path / "kanban").glob("*.md")) == [tmp_path / "kanban" / "jobsearch.md"]
+
+
+def test_kanban_rename_moves_notes_and_decisions(tmp_path):
+    storage.kanban_create("JobSearch", ["To Do", "Done"])
+    storage.note_write("JobSearch", "k1", "content", create=True)
+    storage.decision_log("JobSearch", "D1", "R1")
+    result = storage.kanban_rename("JobSearch", "CareerSearch")
+    assert "Renamed board 'JobSearch' to 'CareerSearch'" in result
+    assert "no notes found" not in storage.note_list("CareerSearch").lower()
+    assert "no decisions found" not in storage.decision_read("CareerSearch").lower()
+    assert "k1" in storage.note_list("CareerSearch")
+    assert list((tmp_path / "notes").iterdir()) == [tmp_path / "notes" / "CareerSearch"]
+    assert list((tmp_path / "decisions").iterdir()) == [tmp_path / "decisions" / "CareerSearch"]
+
+
+def test_kanban_rename_notes_conflict_returns_warning_without_overwriting(tmp_path):
+    storage.kanban_create("JobSearch", ["To Do", "Done"])
+    storage.note_write("JobSearch", "old-note", "from JobSearch", create=True)
+    (tmp_path / "notes" / "CareerSearch").mkdir(parents=True)
+    (tmp_path / "notes" / "CareerSearch" / "existing.md").write_text("pre-existing content")
+
+    result = storage.kanban_rename("JobSearch", "CareerSearch")
+    assert "couldn't move" in result.lower()
+    assert "merge them manually" in result.lower()
+    # nothing got clobbered: the original notes dir is untouched
+    assert (tmp_path / "notes" / "JobSearch" / "old-note.md").exists()
+    assert (
+        tmp_path / "notes" / "CareerSearch" / "existing.md"
+    ).read_text() == "pre-existing content"
+
+
 # ── kanban_search ─────────────────────────────────────────────────────────────
 
 
@@ -550,28 +587,28 @@ def test_kanban_search_case_insensitive():
 
 
 def test_note_write_creates_note(tmp_path):
-    result = storage.note_write("p", "architecture", "We use hexagonal architecture.")
+    result = storage.note_write("p", "architecture", "We use hexagonal architecture.", create=True)
     assert "Written" in result
     assert (tmp_path / "notes" / "p" / "architecture.md").exists()
 
 
 def test_note_write_includes_title_and_date(tmp_path):
-    storage.note_write("p", "arch", "Some content")
+    storage.note_write("p", "arch", "Some content", create=True)
     content = (tmp_path / "notes" / "p" / "arch.md").read_text()
     assert content.startswith("# arch\n")
     assert "_Updated:" in content
 
 
 def test_note_write_overwrites_existing_note(tmp_path):
-    storage.note_write("p", "arch", "v1")
-    storage.note_write("p", "arch", "v2")
+    storage.note_write("p", "arch", "v1", create=True)
+    storage.note_write("p", "arch", "v2", create=True)
     content = (tmp_path / "notes" / "p" / "arch.md").read_text()
     assert "v2" in content
     assert "v1" not in content
 
 
 def test_note_read_returns_content():
-    storage.note_write("p", "key", "hello world")
+    storage.note_write("p", "key", "hello world", create=True)
     result = storage.note_read("p", "key")
     assert "hello world" in result
     assert "# key" in result
@@ -583,8 +620,8 @@ def test_note_read_not_found_returns_error():
 
 
 def test_note_list_returns_keys():
-    storage.note_write("p", "alpha", "a")
-    storage.note_write("p", "beta", "b")
+    storage.note_write("p", "alpha", "a", create=True)
+    storage.note_write("p", "beta", "b", create=True)
     result = storage.note_list("p")
     assert "alpha" in result
     assert "beta" in result
@@ -596,7 +633,7 @@ def test_note_list_no_notes_returns_message():
 
 
 def test_note_delete_removes_note(tmp_path):
-    storage.note_write("p", "key", "content")
+    storage.note_write("p", "key", "content", create=True)
     result = storage.note_delete("p", "key")
     assert "Deleted" in result
     assert not (tmp_path / "notes" / "p" / "key.md").exists()
@@ -611,7 +648,7 @@ def test_note_write_applies_markdownlint_autofix(tmp_path, monkeypatch):
     monkeypatch.setattr(
         storage.markdownlint, "fix_content", lambda body: (body.replace("v1", "FIXED"), [])
     )
-    storage.note_write("p", "arch", "v1")
+    storage.note_write("p", "arch", "v1", create=True)
     content = (tmp_path / "notes" / "p" / "arch.md").read_text()
     assert "FIXED" in content
 
@@ -619,15 +656,181 @@ def test_note_write_applies_markdownlint_autofix(tmp_path, monkeypatch):
 def test_note_write_appends_remaining_lint_issues_to_result(monkeypatch):
     issue = [{"ruleNames": ["MD018"], "ruleDescription": "no space", "lineNumber": 1}]
     monkeypatch.setattr(storage.markdownlint, "fix_content", lambda body: (body, issue))
-    result = storage.note_write("p", "arch", "content")
+    result = storage.note_write("p", "arch", "content", create=True)
     assert "markdownlint issues" in result
     assert "MD018" in result
 
 
 def test_note_write_no_lint_section_when_clean(monkeypatch):
     monkeypatch.setattr(storage.markdownlint, "fix_content", lambda body: (body, []))
-    result = storage.note_write("p", "arch", "content")
+    result = storage.note_write("p", "arch", "content", create=True)
     assert "markdownlint issues" not in result
+
+
+# ── project identity / normalization ──────────────────────────────────────────
+
+
+def test_slugify_normalizes_casing_and_separators():
+    assert storage._slugify("JobSearch") == "jobsearch"
+    assert storage._slugify("job-search") == "jobsearch"
+    assert storage._slugify("Job Search") == "jobsearch"
+
+
+def test_kanban_create_then_add_with_different_casing_use_same_board(tmp_path):
+    storage.kanban_create("JobSearch", ["To Do", "Done"])
+    result = storage.kanban_add("job-search", "To Do", "Apply somewhere")
+    assert "Apply somewhere" in result
+    # only one board file exists on disk, reused under its original spelling
+    assert list((tmp_path / "kanban").glob("*.md")) == [tmp_path / "kanban" / "JobSearch.md"]
+
+
+def test_notes_and_decisions_share_first_seen_directory(tmp_path):
+    storage.kanban_create("JobSearch", ["To Do", "Done"])
+    storage.note_write("job-search", "interview-baseline", "Reusable notes")
+    # a later call under any casing variant reuses the same notes dir instead
+    # of creating a sibling
+    storage.note_write("JobSearch", "second-note", "More content")
+    storage.decision_log("Job Search", "Applied to Acme", "Good fit")
+    storage.decision_log("job-search", "Applied to Beta", "Also good fit")
+    assert list((tmp_path / "notes").iterdir()) == [tmp_path / "notes" / "job-search"]
+    assert {p.stem for p in (tmp_path / "notes" / "job-search").glob("*.md")} == {
+        "interview-baseline",
+        "second-note",
+    }
+    assert list((tmp_path / "decisions").iterdir()) == [tmp_path / "decisions" / "Job Search"]
+
+
+def test_kanban_list_shows_first_seen_display_name(tmp_path):
+    storage.kanban_create("JobSearch", ["To Do", "Done"])
+    storage.kanban_add("job-search", "To Do", "Card")
+    result = storage.kanban_list()
+    assert result == "JobSearch"
+
+
+# ── explicit project creation ─────────────────────────────────────────────────
+
+
+def test_decision_log_unknown_project_requires_create():
+    result = storage.decision_log("brandnew", "D", "R")
+    assert "unknown project" in result.lower()
+    assert "create=true" in result.lower()
+
+
+def test_decision_log_create_true_creates_project():
+    result = storage.decision_log("brandnew", "D", "R", create=True)
+    assert "Logged to" in result
+
+
+def test_note_write_unknown_project_requires_create():
+    result = storage.note_write("brandnew", "key", "content")
+    assert "unknown project" in result.lower()
+    assert "create=true" in result.lower()
+
+
+def test_note_write_create_true_creates_project():
+    result = storage.note_write("brandnew", "key", "content", create=True)
+    assert "Written" in result
+
+
+def test_note_write_unknown_project_suggests_close_match():
+    storage.note_write("JobSearch", "existing", "content", create=True)
+    result = storage.note_write("job-serch", "typo-key", "content")
+    assert "did you mean 'jobsearch'" in result.lower()
+
+
+def test_note_write_existing_project_does_not_require_create():
+    storage.kanban_create("p", ["To Do", "Done"])
+    result = storage.note_write("p", "key", "content")
+    assert "Written" in result
+
+
+# ── project_list ───────────────────────────────────────────────────────────────
+
+
+def test_project_list_no_projects_returns_message():
+    result = storage.project_list()
+    assert "no projects found" in result.lower()
+
+
+def test_project_list_reports_board_notes_decisions_counts():
+    storage.kanban_create("p", ["To Do", "Done"])
+    storage.note_write("p", "arch", "content", create=True)
+    storage.decision_log("p", "D", "R")
+    result = storage.project_list()
+    assert "board: yes" in result
+    assert "notes: 1" in result
+    assert "decisions: 1" in result
+
+
+def test_project_list_flags_collision(tmp_path):
+    # Simulate the pre-migration bug directly: two literal on-disk directories
+    # that normalize to the same slug (the code itself no longer produces this,
+    # since every write now slugifies — this is what project_list must catch
+    # for data that predates that change).
+    (tmp_path / "notes" / "JobSearch").mkdir(parents=True)
+    (tmp_path / "notes" / "job-search").mkdir(parents=True)
+    (tmp_path / "notes" / "job-search" / "interview-baseline.md").write_text("content")
+    result = storage.project_list()
+    assert "collides" in result.lower()
+
+
+def test_project_list_no_collision_for_distinct_projects():
+    storage.kanban_create("alpha", ["To Do", "Done"])
+    storage.kanban_create("beta", ["To Do", "Done"])
+    result = storage.project_list()
+    assert "collides" not in result.lower()
+
+
+# ── kanban card → note links ──────────────────────────────────────────────────
+
+
+def test_kanban_add_with_notes_succeeds_when_notes_exist(tmp_path):
+    storage.kanban_create("p", ["To Do", "Done"])
+    storage.note_write("p", "interview-baseline", "content", create=True)
+    result = storage.kanban_add("p", "To Do", "Acme interview", notes=["interview-baseline"])
+    assert "Acme interview" in result
+    content = (tmp_path / "kanban" / "p.md").read_text()
+    assert "interview-baseline" in content
+
+
+def test_kanban_add_with_missing_note_fails():
+    storage.kanban_create("p", ["To Do", "Done"])
+    result = storage.kanban_add("p", "To Do", "Acme interview", notes=["ghost-note"])
+    assert "not found" in result.lower()
+    assert "ghost-note" in result
+
+
+def test_kanban_update_card_with_missing_note_fails():
+    storage.kanban_create("p", ["To Do", "Done"])
+    storage.kanban_add("p", "To Do", "Card")
+    result = storage.kanban_update_card("p", "Card", notes=["ghost-note"])
+    assert "not found" in result.lower()
+
+
+def test_kanban_update_card_with_existing_note_succeeds(tmp_path):
+    storage.kanban_create("p", ["To Do", "Done"])
+    storage.kanban_add("p", "To Do", "Card")
+    storage.note_write("p", "arch", "content", create=True)
+    result = storage.kanban_update_card("p", "Card", notes=["arch"])
+    assert "Updated" in result
+    content = (tmp_path / "kanban" / "p.md").read_text()
+    assert "notes: [arch]" in content
+
+
+def test_kanban_read_appends_note_keys():
+    storage.kanban_create("p", ["To Do", "Done"])
+    storage.note_write("p", "arch", "content", create=True)
+    storage.note_write("p", "env-setup", "content", create=True)
+    result = storage.kanban_read("p")
+    assert "Notes in this project" in result
+    assert "arch" in result
+    assert "env-setup" in result
+
+
+def test_kanban_read_no_notes_omits_section():
+    storage.kanban_create("p", ["To Do", "Done"])
+    result = storage.kanban_read("p")
+    assert "Notes in this project" not in result
 
 
 # ── project_summary ───────────────────────────────────────────────────────────
@@ -644,7 +847,7 @@ def test_project_summary_includes_kanban_and_decisions():
 
 def test_project_summary_includes_notes():
     storage.kanban_create("p", ["To Do", "Done"])
-    storage.note_write("p", "arch", "Hexagonal architecture")
+    storage.note_write("p", "arch", "Hexagonal architecture", create=True)
     result = storage.project_summary("p")
     assert "Hexagonal architecture" in result
     assert "arch" in result

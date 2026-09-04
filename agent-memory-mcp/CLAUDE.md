@@ -48,32 +48,92 @@ All data lives under `~/.agent-memory/`:
 ~/.agent-memory/
   decisions/<project>/YYYY-MM-DD.md   # Chronological decision log
   kanban/<project>.md                  # Per-project kanban board
+  notes/<project>/<key>.md             # Per-project notes
 ```
 
 Files are plain markdown. They can be opened and edited directly in VS Code.
 Kanban files are compatible with the holooooo.markdown-kanban VS Code extension.
 
+### Project identity and naming convention
+
+`project` is free text (e.g. `JobSearch`, `job-search`, `Job Search`). Rather
+than normalize it into a lowercased slug used as the actual directory name
+(and track the original spelling in a side file), each path helper
+(`_kanban_path`, `_notes_dir`, `_decisions_dir` in `storage.py`) *scans* its
+subsystem directory for an existing entry that normalizes to the same slug —
+casing and separators ignored — and reuses it verbatim if found. A brand-new
+project is created using the exact spelling given. The on-disk name always
+**is** the display name; there's no registry to keep in sync or go stale.
+
+One consequence: "first-seen spelling" is tracked per subsystem, not
+globally. If a board is created as `JobSearch` and a note is later written
+under `job-search`, the notes directory is named `job-search` — there's
+nothing to say it should match the board's casing. What matters is that a
+*second* call under any casing variant reuses that same `job-search`
+directory instead of creating yet another sibling.
+
+**Naming convention: PascalCase project names** (`JobSearch`, `Homelab`,
+`DockerProjects`) — normalization makes it safe against typos and casing
+slips, but staying consistent still keeps directory names readable. Call
+`project_list` before writing to a project name you're not sure already
+exists; it groups near-duplicate spellings together and flags collisions.
+
+Writing to an unknown project (via `decision_log` or `note_write`) fails with
+a suggestion (or a prompt to pass `create=true`) rather than silently
+creating a new project — this is what prevents a typo or casing slip from
+quietly forking a project's data into a sibling directory. `kanban_create` is
+still the explicit way to create a new board.
+
+Pre-existing colliding directories from before this resolution behavior
+existed (e.g. `JobSearch` and `job-search` as two separate directories) were
+already found and merged by hand — there's nothing left to migrate. If a
+similar split ever reappears (e.g. from a sync conflict or a manual rename
+outside the server), `project_list` will surface it as a collision; merge it
+by moving files into one directory manually, since the normalized-name scan
+prevents new writes from creating another one but doesn't retroactively fix
+what's already split.
+
 ## MCP Tools
 
 The server exposes exactly these tools — nothing more.
 
+### Projects
+
+- `project_list()` — enumerates every project across boards, notes, and
+  decisions, with counts, grouped by normalized slug and flagged when two
+  raw names collide. Call this before writing to a project name you're not
+  sure already exists.
+- `project_summary(project, days?)` — the documented entry point for "show me
+  everything about this project": board, recent decisions, and notes together.
+
 ### Decisions
 
-- `decision_log(project, summary, reasoning)` — appends a dated entry to
-  `~/.agent-memory/decisions/<project>/YYYY-MM-DD.md`. Creates the file and
-  directory if they do not exist.
+- `decision_log(project, summary, reasoning, create?)` — appends a dated
+  entry to `~/.agent-memory/decisions/<project>/YYYY-MM-DD.md`. Fails on
+  an unknown project unless `create=true` is passed.
 - `decision_read(project, days?)` — returns recent entries for a project.
   `days` defaults to 7. If `project` is omitted returns entries across all
   projects.
 
 ### Kanban
 
-- `kanban_add(project, column, title, notes?)` — adds a card to the specified
-  column. Creates the board file if it does not exist with default columns:
-  `Backlog`, `In Progress`, `Done`.
+- `kanban_add(project, column, title, notes?, ...)` — adds a card to the
+  specified column. Fails if the board doesn't exist yet — call
+  `kanban_create` first. `notes` is an optional comma-separated list of note
+  keys already written for this project (via `note_write`); validated
+  against `note_list`, so a card can't reference a note that doesn't exist.
 - `kanban_move(project, title, to_column)` — moves an existing card to a
   different column.
-- `kanban_read(project)` — returns the full board for a project.
+- `kanban_read(project)` — returns the full board for a project, with the
+  project's note keys appended so opening a board shows what else belongs to
+  it.
+
+### Notes
+
+- `note_write(project, key, content, create?)` — writes (creates or
+  overwrites) a note. Fails on an unknown project unless `create=true` is
+  passed.
+- `note_read(project, key)` / `note_list(project)` / `note_delete(project, key)`
 
 ### Markdown linting
 

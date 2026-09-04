@@ -5,7 +5,7 @@
 
 {% for card in col.cards %}
 ### {{ card.title }}
-{% if card.due or card.tags or card.priority or card.extra_meta or card.description %}
+{% if card.due or card.tags or card.priority or card.notes or card.extra_meta or card.description %}
 
 {% if card.due %}
   - due: {{ card.due }}
@@ -15,6 +15,9 @@
 {% endif %}
 {% if card.priority %}
   - priority: {{ card.priority }}
+{% endif %}
+{% if card.notes %}
+  - notes: [{{ card.notes | join(', ') }}]
 {% endif %}
 {% for line in card.extra_meta %}
 {{ line }}

@@ -11,15 +11,20 @@ mcp = FastMCP("agent-memory")
 
 
 @mcp.tool()
-def decision_log(project: str, summary: str, reasoning: str) -> str:
+def decision_log(project: str, summary: str, reasoning: str, create: bool = False) -> str:
     """Append a decision entry to the project's dated decision log.
+
+    Project names are normalized (casing/separators ignored) so 'JobSearch' and
+    'job-search' resolve to the same project. Fails on an unknown project name
+    unless create=true — call project_list first if unsure whether it exists.
 
     Args:
         project: Project name (used as directory name, e.g. 'myapp').
         summary: Short one-line description of the decision.
         reasoning: Full explanation of why this decision was made.
+        create: Pass true to create a new project if it doesn't exist yet.
     """
-    result = storage.decision_log(project, summary, reasoning)
+    result = storage.decision_log(project, summary, reasoning, create)
     log.info("decision_log", project=project, summary=summary)
     return result
 
@@ -76,6 +81,7 @@ def kanban_add(
     tags: str = "",
     priority: str = "",
     steps: str = "",
+    notes: str = "",
 ) -> str:
     """Add a card to a kanban column.
 
@@ -89,11 +95,14 @@ def kanban_add(
         priority: Optional priority: high, medium, or low.
         steps: Optional newline-separated checklist items. Prefix with '[x] ' for done
             or '[ ] ' for pending, e.g. '[x] Research\n[ ] Implement\n[ ] Review'.
+        notes: Optional comma-separated note keys already written for this project
+            (via note_write). Validated against note_list — fails if any key is missing.
     """
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
     step_list = [s.strip() for s in steps.splitlines() if s.strip()] if steps else []
+    note_list = [n.strip() for n in notes.split(",") if n.strip()] if notes else []
     result = storage.kanban_add(
-        project, column, title, description, due, tag_list, priority, step_list
+        project, column, title, description, due, tag_list, priority, step_list, note_list
     )
     log.info("kanban_add", project=project, column=column, title=title)
     return result
@@ -149,9 +158,10 @@ def kanban_update_card(
     tags: str = "",
     priority: str = "",
     steps: str = "",
+    notes: str = "",
 ) -> str:
     """Update fields on an existing card. Only supplied fields are changed.
-    Pass an empty string to clear a field (due, tags, priority, steps, description).
+    Pass an empty string to clear a field (due, tags, priority, steps, notes, description).
 
     Args:
         project: Project name.
@@ -162,9 +172,12 @@ def kanban_update_card(
         tags: Comma-separated tags, e.g. 'design, backend'. Empty string clears them.
         priority: New priority: high, medium, or low. Empty string clears it.
         steps: Newline-separated checklist items. Empty string clears them.
+        notes: Comma-separated note keys already written for this project (via
+            note_write). Validated against note_list. Empty string clears them.
     """
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     step_list = [s.strip() for s in steps.splitlines() if s.strip()] if steps else None
+    note_list = [n.strip() for n in notes.split(",") if n.strip()] if notes else None
     result = storage.kanban_update_card(
         project,
         title,
@@ -174,6 +187,7 @@ def kanban_update_card(
         tag_list,
         priority or None,
         step_list,
+        note_list,
     )
     log.info("kanban_update_card", project=project, title=title)
     return result
@@ -240,15 +254,20 @@ def kanban_search(query: str, project: str = "") -> str:
 
 
 @mcp.tool()
-def note_write(project: str, key: str, content: str) -> str:
+def note_write(project: str, key: str, content: str, create: bool = False) -> str:
     """Write (create or overwrite) a note for a project.
+
+    Project names are normalized (casing/separators ignored) so 'JobSearch' and
+    'job-search' resolve to the same project. Fails on an unknown project name
+    unless create=true — call project_list first if unsure whether it exists.
 
     Args:
         project: Project name.
         key: Note identifier, e.g. 'architecture', 'env-setup', 'api-endpoints'.
         content: Full text content of the note.
+        create: Pass true to create a new project if it doesn't exist yet.
     """
-    result = storage.note_write(project, key, content)
+    result = storage.note_write(project, key, content, create)
     log.info("note_write", project=project, key=key)
     return result
 
@@ -288,6 +307,21 @@ def note_delete(project: str, key: str) -> str:
     """
     result = storage.note_delete(project, key)
     log.info("note_delete", project=project, key=key)
+    return result
+
+
+@mcp.tool()
+def project_list() -> str:
+    """List every project across boards, notes, and decisions, with counts.
+
+    Call this before writing to a project name you're not certain already
+    exists — it groups near-duplicate spellings (e.g. 'JobSearch' vs
+    'job-search') together and flags them as collisions, so a typo or casing
+    slip doesn't silently create a sibling project instead of finding the
+    existing one.
+    """
+    result = storage.project_list()
+    log.info("project_list")
     return result
 
 

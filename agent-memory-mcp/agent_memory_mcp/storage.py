@@ -1,5 +1,7 @@
 """File-based storage under ~/.agent-memory/."""
 
+import difflib
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -41,31 +43,125 @@ _env = Environment(
 )
 
 
+# ── Project identity ─────────────────────────────────────────────────────────
+#
+# `project` is user-supplied free text (e.g. "JobSearch", "job-search", "Job
+# Search"). All of those must resolve to the same on-disk project — otherwise
+# a client that spells a project name slightly differently silently creates a
+# sibling directory instead of finding the existing one.
+#
+# Rather than force every path to a normalized (lowercased, separator-free)
+# slug and track the original spelling in a side file, each path helper below
+# *scans* its subsystem directory (kanban/, notes/, decisions/) for an
+# existing entry that normalizes to the same slug, and reuses it verbatim —
+# casing and all — if found. A brand-new project is created using the exact
+# spelling given. This means the on-disk name always IS the display name
+# (nothing to keep in sync), at the cost of a directory listing per call —
+# negligible at this scale (a handful of personal projects).
+#
+# One consequence: "first-seen spelling" is tracked per subsystem, not
+# globally. If a board is created as "JobSearch" and a note is later written
+# under "job-search", the notes directory is named "job-search" (its own
+# first-seen spelling), not "JobSearch" — there's no shared registry to say
+# otherwise. What matters for the bug this fixes is that a *second* call to
+# note_write with any casing variant reuses that same "job-search" directory
+# instead of creating yet another sibling.
+
+
+def _slugify(name: str) -> str:
+    """Normalize a project name to a stable, casing/separator-insensitive slug
+    for *comparison only* — never used as an on-disk name."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _find_existing(base_dir: Path, project: str, *, is_file: bool, suffix: str = "") -> Path | None:
+    """Look for an existing entry under `base_dir` whose name normalizes to
+    the same slug as `project`, returning it with its on-disk casing intact."""
+    if not base_dir.exists():
+        return None
+    slug = _slugify(project)
+    if is_file:
+        candidates = base_dir.glob(f"*{suffix}")
+        return next((p for p in candidates if _slugify(p.stem) == slug), None)
+    return next((p for p in base_dir.iterdir() if p.is_dir() and _slugify(p.name) == slug), None)
+
+
+def _project_exists(project: str) -> bool:
+    return (
+        _kanban_path(project).exists()
+        or _notes_dir(project).exists()
+        or _decisions_dir(project).exists()
+    )
+
+
+def _suggest_project(project: str) -> str | None:
+    """Suggest an existing project's on-disk spelling for a likely typo/casing miss."""
+    known_names: set[str] = set()
+    kanban_dir = STORAGE_ROOT / "kanban"
+    if kanban_dir.exists():
+        known_names |= {p.stem for p in kanban_dir.glob("*.md")}
+    notes_root = STORAGE_ROOT / "notes"
+    if notes_root.exists():
+        known_names |= {p.name for p in notes_root.iterdir() if p.is_dir()}
+    decisions_root = STORAGE_ROOT / "decisions"
+    if decisions_root.exists():
+        known_names |= {p.name for p in decisions_root.iterdir() if p.is_dir()}
+
+    by_slug: dict[str, str] = {}
+    for name in known_names:
+        by_slug.setdefault(_slugify(name), name)
+    by_slug.pop(_slugify(project), None)  # an exact/normalized match isn't a "suggestion"
+
+    match = difflib.get_close_matches(_slugify(project), list(by_slug), n=1, cutoff=0.8)
+    return by_slug[match[0]] if match else None
+
+
+def _require_existing_project(project: str, create: bool) -> str | None:
+    """Return an error message if `project` is unknown and `create` wasn't passed."""
+    if create or _project_exists(project):
+        return None
+    suggestion = _suggest_project(project)
+    if suggestion:
+        return (
+            f"Unknown project '{project}'. Did you mean '{suggestion}'? "
+            "Pass create=true to create a new project."
+        )
+    return f"Unknown project '{project}'. Pass create=true to create a new project."
+
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 
 def _decisions_dir(project: str) -> Path:
-    return STORAGE_ROOT / "decisions" / project
+    base = STORAGE_ROOT / "decisions"
+    return _find_existing(base, project, is_file=False) or base / project
 
 
 def _kanban_path(project: str) -> Path:
-    return STORAGE_ROOT / "kanban" / f"{project}.md"
+    base = STORAGE_ROOT / "kanban"
+    existing = _find_existing(base, project, is_file=True, suffix=".md")
+    return existing or base / f"{project}.md"
 
 
 def _notes_dir(project: str) -> Path:
-    return STORAGE_ROOT / "notes" / project
+    base = STORAGE_ROOT / "notes"
+    return _find_existing(base, project, is_file=False) or base / project
 
 
 # ── Decisions ─────────────────────────────────────────────────────────────────
 
 
-def decision_log(project: str, summary: str, reasoning: str) -> str:
+def decision_log(project: str, summary: str, reasoning: str, create: bool = False) -> str:
+    error = _require_existing_project(project, create)
+    if error:
+        return error
     d = _decisions_dir(project)
+    display_name = d.name  # the existing dir's on-disk spelling, or `project` if new
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{date.today().isoformat()}.md"
     if not path.exists():
         header = _env.get_template("decision_header.md.j2").render(
-            project=project,
+            project=display_name,
             date=date.today().isoformat(),
         )
         path.write_text(header)
@@ -117,6 +213,7 @@ class Card:
     tags: list[str] = field(default_factory=list)
     priority: str = ""
     steps: list[str] = field(default_factory=list)  # e.g. ["[x] done", "[ ] pending"]
+    notes: list[str] = field(default_factory=list)  # note keys in the same project
     extra_meta: list[str] = field(default_factory=list)  # unrecognised lines preserved as-is
 
 
@@ -189,6 +286,9 @@ def _parse_board(content: str) -> tuple[str, list[Column]]:
             current_card.tags = [t.strip() for t in tags_str.split(",") if t.strip()]
         elif stripped.startswith("- priority: "):
             current_card.priority = stripped[12:]
+        elif stripped.startswith("- notes: "):
+            notes_str = stripped[9:].strip().strip("[]")
+            current_card.notes = [n.strip() for n in notes_str.split(",") if n.strip()]
         elif stripped == "- steps:":
             in_steps = True
         elif line.startswith("  ") and stripped:
@@ -260,6 +360,11 @@ def kanban_add_column(project: str, column: str, after: str = "") -> str:
     return f"Added column '{column}'."
 
 
+def _missing_notes(project: str, note_keys: list[str]) -> list[str]:
+    notes_dir = _notes_dir(project)
+    return [key for key in note_keys if not (notes_dir / f"{key}.md").exists()]
+
+
 def kanban_add(
     project: str,
     column: str,
@@ -269,11 +374,19 @@ def kanban_add(
     tags: list[str] | None = None,
     priority: str = "",
     steps: list[str] | None = None,
+    notes: list[str] | None = None,
 ) -> str:
     board = _load_board(project)
     if board is None:
         return f"No board found for project '{project}'. Create one first with kanban_create."
     board_title, columns = board
+    note_list = notes or []
+    missing = _missing_notes(project, note_list)
+    if missing:
+        return (
+            f"Note(s) {missing} not found in project '{project}'. "
+            "Write them first with note_write, or check note_list."
+        )
     for col in columns:
         if col.name.lower() == column.lower():
             col.cards.append(
@@ -284,6 +397,7 @@ def kanban_add(
                     tags=tags or [],
                     priority=priority,
                     steps=steps or [],
+                    notes=note_list,
                 )
             )
             _save_board(project, board_title, columns)
@@ -358,10 +472,18 @@ def kanban_update_card(
     tags: list[str] | None = None,
     priority: str | None = None,
     steps: list[str] | None = None,
+    notes: list[str] | None = None,
 ) -> str:
     board = _load_board(project)
     if board is None:
         return f"No board found for project '{project}'. Create one first with kanban_create."
+    if notes is not None:
+        missing = _missing_notes(project, notes)
+        if missing:
+            return (
+                f"Note(s) {missing} not found in project '{project}'. "
+                "Write them first with note_write, or check note_list."
+            )
     board_title, columns = board
     for col in columns:
         for card in col.cards:
@@ -378,6 +500,8 @@ def kanban_update_card(
                     card.priority = priority
                 if steps is not None:
                     card.steps = steps
+                if notes is not None:
+                    card.notes = notes
                 _save_board(project, board_title, columns)
                 return f"Updated '{card.title}'."
     return f"Card '{title}' not found."
@@ -387,10 +511,10 @@ def kanban_list() -> str:
     kanban_dir = STORAGE_ROOT / "kanban"
     if not kanban_dir.exists():
         return "No boards found."
-    boards = sorted(p.stem for p in kanban_dir.glob("*.md"))
-    if not boards:
+    stems = sorted(p.stem for p in kanban_dir.glob("*.md"))
+    if not stems:
         return "No boards found."
-    return "\n".join(boards)
+    return "\n".join(stems)
 
 
 def kanban_delete(project: str) -> str:
@@ -405,12 +529,38 @@ def kanban_rename(project: str, new_name: str) -> str:
     path = _kanban_path(project)
     if not path.exists():
         return f"No board found for project '{project}'."
-    new_path = _kanban_path(new_name)
-    if new_path.exists():
+
+    # A pure re-casing/re-spelling of the same project (e.g. "JobSearch" ->
+    # "jobsearch") must not be rejected as a collision with itself: _kanban_path
+    # resolves by normalized slug, so checking it against the not-yet-unlinked
+    # original file would otherwise always find that same file.
+    same_project = _slugify(new_name) == _slugify(project)
+    if not same_project and _kanban_path(new_name).exists():
         return f"Board '{new_name}' already exists."
+
     board_title, columns = _parse_board(path.read_text())
     path.unlink()
     _save_board(new_name, new_name, columns)
+
+    # A genuine rename (not just a re-casing) also moves this project's notes
+    # and decisions along with it — otherwise they stay filed under the old
+    # name and become unreachable under the new one, splitting the project
+    # right back into the disconnected-directories state this whole
+    # normalized-resolution mechanism exists to prevent.
+    if not same_project:
+        for subsystem, dir_fn in (("notes", _notes_dir), ("decisions", _decisions_dir)):
+            src = dir_fn(project)
+            if not src.exists():
+                continue
+            dest = STORAGE_ROOT / subsystem / new_name
+            if dest.exists():
+                return (
+                    f"Renamed board '{project}' to '{new_name}', but couldn't move "
+                    f"{subsystem}/{src.name} — a directory named '{new_name}' already "
+                    "exists there. Merge them manually."
+                )
+            src.rename(dest)
+
     return f"Renamed board '{project}' to '{new_name}'."
 
 
@@ -440,13 +590,20 @@ def kanban_read(project: str) -> str:
     path = _kanban_path(project)
     if not path.exists():
         return f"No board found for project '{project}'."
-    return path.read_text()
+    content = path.read_text()
+    note_keys = sorted(p.stem for p in _notes_dir(project).glob("*.md"))
+    if note_keys:
+        content += f"\n---\nNotes in this project: {', '.join(note_keys)}\n"
+    return content
 
 
 # ── Notes ─────────────────────────────────────────────────────────────────────
 
 
-def note_write(project: str, key: str, content: str) -> str:
+def note_write(project: str, key: str, content: str, create: bool = False) -> str:
+    error = _require_existing_project(project, create)
+    if error:
+        return error
     d = _notes_dir(project)
     d.mkdir(parents=True, exist_ok=True)
     body = f"# {key}\n\n_Updated: {date.today().isoformat()}_\n\n{content}\n"
@@ -481,6 +638,60 @@ def note_delete(project: str, key: str) -> str:
         return f"Note '{key}' not found for project '{project}'."
     path.unlink()
     return f"Deleted note '{key}' from project '{project}'."
+
+
+# ── Project listing ───────────────────────────────────────────────────────────
+
+
+def project_list() -> str:
+    """Enumerate every project directory across boards, notes, and decisions.
+
+    Groups by normalized slug so near-duplicate spellings (e.g. 'JobSearch' vs
+    'job-search') show up next to each other, flagged as a collision, instead
+    of silently looking like two unrelated empty projects.
+    """
+    entries: dict[str, dict] = {}
+
+    def entry_for(raw_name: str) -> dict:
+        slug = _slugify(raw_name)
+        e = entries.setdefault(
+            slug, {"raw_names": set(), "board_name": None, "notes": 0, "decisions": 0}
+        )
+        e["raw_names"].add(raw_name)
+        return e
+
+    kanban_dir = STORAGE_ROOT / "kanban"
+    if kanban_dir.exists():
+        for p in kanban_dir.glob("*.md"):
+            entry_for(p.stem)["board_name"] = p.stem
+
+    notes_root = STORAGE_ROOT / "notes"
+    if notes_root.exists():
+        for d in notes_root.iterdir():
+            if d.is_dir():
+                entry_for(d.name)["notes"] = len(list(d.glob("*.md")))
+
+    decisions_root = STORAGE_ROOT / "decisions"
+    if decisions_root.exists():
+        for d in decisions_root.iterdir():
+            if d.is_dir():
+                entry_for(d.name)["decisions"] = len(list(d.glob("*.md")))
+
+    if not entries:
+        return "No projects found."
+
+    lines = []
+    for slug in sorted(entries):
+        e = entries[slug]
+        display = e["board_name"] or sorted(e["raw_names"])[0]
+        line = (
+            f"{display:<20} board: {'yes' if e['board_name'] else 'no':<4} "
+            f"notes: {e['notes']:<3} decisions: {e['decisions']:<3}"
+        )
+        if len(e["raw_names"]) > 1:
+            line += f"  ⚠ collides: {sorted(e['raw_names'])}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 # ── Project summary ───────────────────────────────────────────────────────────

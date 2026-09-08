@@ -67,6 +67,19 @@ since from the wiki author's perspective they're valid links, and disagreeing
 with what the filesystem itself accepts would make `backlinks` less useful,
 not more correct.
 
+`_extract_md_link_targets` only strips a trailing `(url "title")`/`(url
+'title')` annotation when it's actually a quoted title at the very end
+(`_LINK_TITLE_RE`), not just "everything after the first space" — an earlier
+version did the latter, which truncated a link target that legitimately
+contains a literal, non-percent-encoded space (this wiki has plenty, e.g.
+`Values Files.md`) at the first space, silently dropping it from `backlinks`
+results entirely. `backlinks` and `delete_page`'s confirm-gate share one
+`_backlinks_list` helper returning a real `list[str]`, rather than
+`delete_page` re-parsing `backlinks`' formatted string output by checking
+whether it starts with `"No pages link"` — that string-sniffing broke if
+`backlinks` ever returned a different message (e.g. its own "not found" text
+for a TOCTOU race — see below), misreporting an error as a real backlink.
+
 ## MCP Tools
 
 - `list_pages(directory?)` — list every `.md` page, optionally scoped to a subdirectory.
@@ -117,9 +130,53 @@ raised (except for a genuinely invalid path traversal attempt, which raises
 invalid path is a caller mistake no valid input could produce by accident,
 unlike "page doesn't exist yet" which is an expected, recoverable case).
 
-All file I/O is synchronous. No database, no external dependencies beyond
-the MCP SDK. No sandboxing — the server runs with full filesystem access
-under the user account, scoped to `WIKI_DIR` by the traversal check.
+All file I/O in `storage.py` is synchronous. No database, no external
+dependencies beyond the MCP SDK. No sandboxing — the server runs with full
+filesystem access under the user account, scoped to `WIKI_DIR` by the
+traversal check.
+
+### Why every tool wrapper in server.py is `async` and calls `_run`
+
+`WIKI_DIR` can be pointed at a synced folder the same way
+`agent-memory-mcp`'s `AGENT_MEMORY_DIR` commonly is — a plain file
+read/write there can stall for minutes if the sync client needs to fetch an
+evicted local copy or is otherwise slow. FastMCP calls a synchronous tool
+function directly on its single asyncio event loop with **no thread-pool
+offloading**, so a single stalled call would freeze the *entire* server —
+this is the exact bug `agent-memory-mcp` had and fixed (see that repo's
+CLAUDE.md for how it was found: a 4-minute hung write with a concurrent read
+blocked behind it).
+
+`_run` in `server.py` offloads each tool's blocking call to a worker thread
+via `anyio.to_thread.run_sync`, with the same kind of timeout
+(`_SLOW_OPERATION_TIMEOUT_SECONDS`) so a genuinely stuck call returns an
+informative message instead of hanging silently — the underlying thread
+keeps running to completion in the background regardless.
+
+**Unlike `agent-memory-mcp`'s equivalent, this `_run` takes no per-resource
+lock.** `agent-memory-mcp` needed one because its kanban functions do a
+read-modify-write (read the whole board, change one card, write it back) —
+offloading to threads let two concurrent writes read the same starting
+state and clobber each other. `write_page` here fully replaces a page's
+content from the caller's own `content` argument; it doesn't read-and-merge
+existing state, so two concurrent writes to the same page are an ordinary
+last-write-wins, not a lost update — nothing to lock against. What still
+matters is exactly what motivated the lock there in the first place: every
+write goes through `storage._atomic_write_text` (temp file + `os.replace()`
+— see below), so a lock-free concurrent read can only ever see the complete
+old file or the complete new one, never a partial write.
+
+### `_atomic_write_text` and lock-free reads
+
+`write_page` writes via `_atomic_write_text` rather than a plain
+`Path.write_text()`. Combined with no read taking any lock, this creates a
+narrow, harmless TOCTOU window: a read or delete can race a concurrent
+write/delete for the *same* page between resolving its path and acting on
+it (e.g. `read_page`'s `path.read_text()` after a stale `is_file()` check).
+`read_page`, and `delete_page`'s `unlink()`, both catch `FileNotFoundError`
+around that step and treat it the same as "not found" — the same outcome a
+call issued a moment earlier would have gotten anyway — rather than letting
+the exception surface as a crash.
 
 ## Conventions
 
@@ -131,3 +188,7 @@ under the user account, scoped to `WIKI_DIR` by the traversal check.
   `wiki_root` fixture in `tests/test_storage.py`. `tests/conftest.py` sets a
   throwaway `WIKI_DIR` before collection so the initial module import
   (before any test's `monkeypatch` runs) doesn't fail.
+- `tests/test_server.py` covers the `_run` thread-offloading/timeout wrapper
+  directly, driven with plain `asyncio.run()` — no pytest-asyncio plugin
+  needed, and no per-project-lock tests to mirror from `agent-memory-mcp`
+  since this `_run` doesn't have one (see the Architecture section above).

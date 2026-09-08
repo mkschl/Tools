@@ -730,9 +730,10 @@ wheels = [
 
 [[package]]
 name = "wiki-mcp"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "mcp" },
     { name = "structlog" },
 ]
@@ -745,6 +746,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.0" },
     { name = "mcp", specifier = ">=1.27,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },

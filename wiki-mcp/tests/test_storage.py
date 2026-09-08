@@ -1,4 +1,5 @@
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -117,6 +118,21 @@ def test_read_page_rejects_path_traversal(wiki_root):
     assert "escapes the wiki root" in result.lower()
 
 
+def test_read_page_handles_file_vanishing_mid_read(wiki_root, monkeypatch):
+    """read_page takes no lock (server.py offloads to a thread with a
+    timeout but no per-page lock — see that module's docstring), so it can
+    race a concurrent write_page/delete_page that removes the file between
+    resolving its path and reading it. Must treat that as 'not found'."""
+    write(wiki_root, "Lambda.md", "content")
+
+    def read_text_that_vanishes(self, *args, **kwargs):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(Path, "read_text", read_text_that_vanishes)
+    result = storage.read_page("Lambda.md")
+    assert "not found" in result.lower()
+
+
 # ── search ───────────────────────────────────────────────────────────────────
 
 
@@ -163,6 +179,29 @@ def test_backlinks_handles_url_encoded_spaces_and_parent_relative(wiki_root):
     )
     result = storage.backlinks("Containerisation/Helm/Chart Template Guide/Values Files.md")
     assert "Containerisation/Helm/Topics/Charts.md" in result
+
+
+def test_backlinks_handles_unencoded_space_in_target(wiki_root):
+    """Regression test: a link target with a literal (non-percent-encoded)
+    space must not be truncated at the first space — that used to be
+    mistaken for a '(url "title")' separator, e.g. this exact filename."""
+    write(wiki_root, "Containerisation/Helm/Chart Template Guide/Values Files.md", "# Values")
+    write(
+        wiki_root,
+        "Containerisation/Helm/Guide.md",
+        "See [Values Files](Chart Template Guide/Values Files.md) for details.",
+    )
+    result = storage.backlinks("Containerisation/Helm/Chart Template Guide/Values Files.md")
+    assert "Containerisation/Helm/Guide.md" in result
+
+
+def test_backlinks_still_strips_a_genuine_quoted_title(wiki_root):
+    """A real '(url "title")' annotation should still be recognized and
+    dropped — the fix for unencoded-space targets must not regress this."""
+    write(wiki_root, "Values Files.md", "# Values")
+    write(wiki_root, "Guide.md", 'See [Values Files](Values Files.md "the values doc").')
+    result = storage.backlinks("Values Files.md")
+    assert "Guide.md" in result
 
 
 def test_backlinks_ignores_anchor_fragment(wiki_root):
@@ -235,6 +274,39 @@ def test_write_page_applies_markdownlint_autofix(wiki_root, monkeypatch):
     assert "FIXED" in (wiki_root / "New.md").read_text()
 
 
+def test_write_page_leaves_no_temp_file_behind(wiki_root):
+    storage.write_page("New.md", "content", create=True)
+    assert list(wiki_root.iterdir()) == [wiki_root / "New.md"]
+
+
+# ── _atomic_write_text ───────────────────────────────────────────────────────
+
+
+def test_atomic_write_text_writes_content(wiki_root):
+    target = wiki_root / "Page.md"
+    storage._atomic_write_text(target, "hello world")
+    assert target.read_text() == "hello world"
+
+
+def test_atomic_write_text_overwrites_existing_content(wiki_root):
+    target = wiki_root / "Page.md"
+    target.write_text("old")
+    storage._atomic_write_text(target, "new")
+    assert target.read_text() == "new"
+
+
+def test_atomic_write_text_cleans_up_temp_file_on_failure(wiki_root, monkeypatch):
+    target = wiki_root / "Page.md"
+
+    def broken_replace(src, dst):
+        raise OSError("simulated failure")
+
+    monkeypatch.setattr(storage.os, "replace", broken_replace)
+    with pytest.raises(OSError, match="simulated failure"):
+        storage._atomic_write_text(target, "content")
+    assert list(wiki_root.iterdir()) == []
+
+
 # ── delete_page ──────────────────────────────────────────────────────────────
 
 
@@ -259,8 +331,32 @@ def test_delete_page_without_confirm_reports_inbound_links(wiki_root):
     assert (wiki_root / "Target.md").exists()
 
 
+def test_delete_page_inbound_links_formatted_as_readable_list(wiki_root):
+    """Regression test: the warning used to interpolate the list of linking
+    pages via its Python repr (e.g. "['Guide.md', 'Other.md']") instead of a
+    readable comma-joined list."""
+    write(wiki_root, "Target.md", "# Target")
+    write(wiki_root, "Linker.md", "See [Target](Target.md).")
+    result = storage.delete_page("Target.md")
+    assert "['Linker.md']" not in result
+    assert "linked from 1 page(s): Linker.md" in result
+
+
 def test_delete_page_with_confirm_deletes(wiki_root):
     write(wiki_root, "Lonely.md", "# Lonely")
     result = storage.delete_page("Lonely.md", confirm=True)
     assert "deleted" in result.lower()
     assert not (wiki_root / "Lonely.md").exists()
+
+
+def test_delete_page_handles_file_vanishing_before_unlink(wiki_root, monkeypatch):
+    """delete_page takes no lock, so a concurrent delete for the same page
+    could remove the file between the is_file() check and the unlink call."""
+    write(wiki_root, "Lonely.md", "# Lonely")
+
+    def unlink_that_raises(self, *args, **kwargs):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(Path, "unlink", unlink_that_raises)
+    result = storage.delete_page("Lonely.md", confirm=True)
+    assert "not found" in result.lower()

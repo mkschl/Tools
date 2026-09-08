@@ -1,8 +1,10 @@
 """File-based access to a markdown wiki repo, rooted at WIKI_DIR."""
 
+import contextlib
 import difflib
 import os
 import re
+import tempfile
 import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,6 +12,25 @@ from pathlib import Path
 from wiki_mcp import markdownlint
 
 _EXCLUDED_DIR_NAMES = {"build", "dist", "node_modules", "__pycache__"}
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write `content` to `path` as one atomic replace, never a partial file.
+
+    server.py offloads each tool call to a worker thread with a timeout but
+    takes no lock on the page being written — every write here goes through
+    this helper so a concurrent reader can only ever observe the complete
+    old file or the complete new one, never bytes from a write in progress.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 def _check_wiki_dir(path: Path) -> None:
@@ -93,13 +114,18 @@ def read_page(page: str) -> str:
         path = _resolve_page_path(page)
     except ValueError as exc:
         return str(exc)
-    if not path.is_file():
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # server.py takes no lock on the page being read, so this can race a
+        # concurrent write_page/delete_page for the same page — a plain
+        # is_file()-then-read_text() has a gap where the file could vanish
+        # in between; read directly and treat a miss as "not found."
         msg = f"Page '{page}' not found."
         suggestion = _suggest_page(page)
         if suggestion:
             msg += f" Did you mean '{suggestion}'?"
         return msg
-    return path.read_text(encoding="utf-8")
 
 
 def search(query: str, limit: int = 100) -> str:
@@ -125,6 +151,11 @@ def search(query: str, limit: int = 100) -> str:
 # ── Links ────────────────────────────────────────────────────────────────────
 
 _LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+# A trailing (url "title") or (url 'title') annotation — only stripped when
+# it's actually a quoted title at the very end, not just "the first space,"
+# since a real (unencoded) filename can itself contain spaces, e.g. this
+# wiki's own "Values Files.md".
+_LINK_TITLE_RE = re.compile(r"""\s+(?:"[^"]*"|'[^']*')$""")
 
 
 def _extract_md_link_targets(md_path: Path) -> list[Path]:
@@ -138,7 +169,7 @@ def _extract_md_link_targets(md_path: Path) -> list[Path]:
         raw = match.group(1).strip()
         if raw.startswith(("http://", "https://", "mailto:", "#")):
             continue
-        raw = raw.split(" ", 1)[0]  # drop a trailing "title" in (url "title")
+        raw = _LINK_TITLE_RE.sub("", raw)
         raw = raw.split("#", 1)[0]  # drop an anchor fragment
         if not raw.lower().endswith(".md"):
             continue
@@ -151,17 +182,10 @@ def _extract_md_link_targets(md_path: Path) -> list[Path]:
     return targets
 
 
-def backlinks(page: str) -> str:
-    try:
-        target = _resolve_page_path(page)
-    except ValueError as exc:
-        return str(exc)
-    if not target.is_file():
-        msg = f"Page '{page}' not found."
-        suggestion = _suggest_page(page)
-        if suggestion:
-            msg += f" Did you mean '{suggestion}'?"
-        return msg
+def _backlinks_list(target: Path) -> list[str]:
+    """Every page (relative-path string) that links to `target`, sorted.
+    Assumes `target` already exists — callers check that separately, since
+    "not found" and "found with zero backlinks" need different messages."""
     root = WIKI_ROOT.resolve()
     target_key = str(target).lower()
     matches = []
@@ -176,9 +200,24 @@ def backlinks(page: str) -> str:
             if str(link_target).lower() == target_key:
                 matches.append(str(resolved.relative_to(root)))
                 break
+    return sorted(matches)
+
+
+def backlinks(page: str) -> str:
+    try:
+        target = _resolve_page_path(page)
+    except ValueError as exc:
+        return str(exc)
+    if not target.is_file():
+        msg = f"Page '{page}' not found."
+        suggestion = _suggest_page(page)
+        if suggestion:
+            msg += f" Did you mean '{suggestion}'?"
+        return msg
+    matches = _backlinks_list(target)
     if not matches:
         return f"No pages link to '{page}'."
-    return "\n".join(sorted(matches))
+    return "\n".join(matches)
 
 
 # ── Writing ──────────────────────────────────────────────────────────────────
@@ -202,7 +241,7 @@ def write_page(page: str, content: str, create: bool = False) -> str:
 
     fixed_content, remaining_issues = markdownlint.fix_content(content, WIKI_ROOT.resolve())
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(fixed_content, encoding="utf-8")
+    _atomic_write_text(path, fixed_content)
 
     action = "Updated" if existed_before else "Created"
     result = f"{action} page '{page}'."
@@ -219,14 +258,16 @@ def delete_page(page: str, confirm: bool = False) -> str:
     if not path.is_file():
         return f"Page '{page}' not found."
     if not confirm:
-        inbound = backlinks(page)
+        linking_pages = _backlinks_list(path)
         msg = f"Pass confirm=true to delete '{page}'."
-        if not inbound.startswith("No pages link"):
-            linking_pages = inbound.splitlines()
+        if linking_pages:
             msg = (
                 f"Page '{page}' is linked from {len(linking_pages)} page(s): "
-                f"{linking_pages}. Those links will break. " + msg
+                f"{', '.join(linking_pages)}. Those links will break. " + msg
             )
         return msg
-    path.unlink()
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return f"Page '{page}' not found."
     return f"Deleted page '{page}'."

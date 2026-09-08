@@ -15,6 +15,7 @@ below).
 | [`kubectl-mcp`](kubectl-mcp/) | Generic MCP server exposing `kubectl` cluster operations as tools |
 | [`parallels-mcp`](parallels-mcp/) | MCP server for Parallels Desktop VM lifecycle control via `prlctl` |
 | [`threemf-paint-mcp`](threemf-paint-mcp/) | MCP server for inspecting and recoloring Bambu Studio / OrcaSlicer `.3mf` multi-color paint data |
+| [`wiki-mcp`](wiki-mcp/) | MCP server for read/search/write access to an external markdown wiki repo (link resolution, backlinks) |
 
 Each project has its own `CLAUDE.md` with commands, architecture notes, and testing instructions.
 

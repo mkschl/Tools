@@ -5,7 +5,8 @@
         "${workspaceFolder}/kubectl-mcp",
         "${workspaceFolder}/lmstudio-code-cli",
         "${workspaceFolder}/parallels-mcp",
-        "${workspaceFolder}/threemf-paint-mcp"
+        "${workspaceFolder}/threemf-paint-mcp",
+        "${workspaceFolder}/wiki-mcp"
     ],
     "cSpell.words": [
         "Bambu",

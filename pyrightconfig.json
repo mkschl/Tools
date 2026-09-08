@@ -6,6 +6,7 @@
     "kubectl-mcp",
     "lmstudio-code-cli",
     "parallels-mcp",
-    "threemf-paint-mcp"
+    "threemf-paint-mcp",
+    "wiki-mcp"
   ]
 }

@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-memory-mcp"
-version = "0.2.0"
+version = "0.2.4"
 description = "Shared persistent memory MCP server for MCPGateway"
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.0,<2.0",
+    "anyio>=4.0",
     "jinja2>=3.1",
     "structlog>=24.0",
 ]
@@ -30,7 +31,9 @@ include = ["agent_memory_mcp*"]
 agent_memory_mcp = ["templates/*.j2"]
 
 [tool.pytest.ini_options]
-# no asyncio needed — all storage functions are synchronous
+# no pytest-asyncio plugin needed — storage functions are synchronous, and
+# the few async tests for server.py's thread-offloading wrapper drive the
+# event loop directly with asyncio.run() instead
 
 [tool.ruff]
 line-length = 100

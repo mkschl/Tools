@@ -1,5 +1,6 @@
 import importlib
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -39,6 +40,41 @@ def test_agent_memory_dir_not_writable_raises_at_import(tmp_path, monkeypatch):
             importlib.reload(storage)
     finally:
         read_only.chmod(0o755)
+
+
+# ── _atomic_write_text ───────────────────────────────────────────────────────
+
+
+def test_atomic_write_text_writes_content(tmp_path):
+    target = tmp_path / "board.md"
+    storage._atomic_write_text(target, "hello world")
+    assert target.read_text() == "hello world"
+
+
+def test_atomic_write_text_overwrites_existing_content(tmp_path):
+    target = tmp_path / "board.md"
+    target.write_text("old")
+    storage._atomic_write_text(target, "new")
+    assert target.read_text() == "new"
+
+
+def test_atomic_write_text_leaves_no_temp_file_behind(tmp_path):
+    target = tmp_path / "board.md"
+    storage._atomic_write_text(target, "content")
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_atomic_write_text_cleans_up_temp_file_on_failure(tmp_path, monkeypatch):
+    target = tmp_path / "board.md"
+
+    def broken_replace(src, dst):
+        raise OSError("simulated failure")
+
+    monkeypatch.setattr(storage.os, "replace", broken_replace)
+    with pytest.raises(OSError, match="simulated failure"):
+        storage._atomic_write_text(target, "content")
+    # no leftover temp file, and the target was never created
+    assert list(tmp_path.iterdir()) == []
 
 
 # ── decision_log ───────────────────────────────────────────────────────────────
@@ -456,6 +492,20 @@ def test_kanban_read_returns_board_content(tmp_path):
     assert "To Do" in result
 
 
+def test_kanban_read_handles_file_vanishing_mid_read(tmp_path, monkeypatch):
+    """kanban_read takes no lock (see server.py), so it can race a concurrent
+    write that removes the file between resolving its path and reading it.
+    It must treat that the same as 'not found' rather than raising."""
+    storage.kanban_create("p", ["To Do"])
+
+    def read_text_that_vanishes(self, *args, **kwargs):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(Path, "read_text", read_text_that_vanishes)
+    result = storage.kanban_read("p")
+    assert "no board found" in result.lower()
+
+
 # ── kanban_delete ─────────────────────────────────────────────────────────────
 
 
@@ -616,6 +666,19 @@ def test_note_read_returns_content():
 
 def test_note_read_not_found_returns_error():
     result = storage.note_read("p", "ghost")
+    assert "not found" in result.lower()
+
+
+def test_note_read_handles_file_vanishing_mid_read(monkeypatch):
+    """note_read takes no lock (see server.py) — see the equivalent
+    kanban_read test for why this must not raise."""
+    storage.note_write("p", "key", "content", create=True)
+
+    def read_text_that_vanishes(self, *args, **kwargs):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(Path, "read_text", read_text_that_vanishes)
+    result = storage.note_read("p", "key")
     assert "not found" in result.lower()
 
 

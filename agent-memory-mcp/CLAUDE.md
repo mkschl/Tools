@@ -30,8 +30,13 @@ Tests live in `tests/test_storage.py` and cover all storage functions using
 - `kanban_add`, `kanban_move`, `kanban_read`
 - `_parse_board` (title, columns, cards, metadata, steps, description blocks)
 
-`server.py` (MCP tool wrappers) is not unit-tested — verify by registering in
-MCPGateway and calling tools via Claude Code or lmstudio-code-cli.
+`server.py`'s individual `@mcp.tool()` wrappers (the thin storage-call +
+`log.info` glue) are not unit-tested — verify those by registering in
+MCPGateway and calling tools via Claude Code or lmstudio-code-cli. The one
+piece of real logic in `server.py`, the `_run` thread-offloading/timeout
+wrapper (see Architecture below), does have its own tests in
+`tests/test_server.py`, run with plain `asyncio.run()` — no pytest-asyncio
+plugin needed.
 
 ## Purpose
 
@@ -163,9 +168,138 @@ parallels-mcp. MCPGateway launches it as a subprocess and acts as the single
 shared hub — all clients route through MCPGateway, so the subprocess is
 effectively shared across callers.
 
-All file I/O is synchronous. No database, no external dependencies beyond
-the MCP SDK. The storage path `~/.agent-memory/` is resolved at startup and
-is not configurable — simplicity is intentional.
+All file I/O in `storage.py` is synchronous. No database, no external
+dependencies beyond the MCP SDK. The storage path `~/.agent-memory/` is
+resolved at startup and is not configurable — simplicity is intentional.
+Every write goes through `_atomic_write_text` (temp file + `os.replace()`)
+rather than a plain `Path.write_text()` — see "Why `_run` also takes a
+`project` lock" below for why that matters even though it looks unrelated to
+concurrency at a glance.
+
+### Why every tool wrapper in server.py is `async` and calls `_run`
+
+`AGENT_MEMORY_DIR` is commonly pointed at an iCloud/Dropbox-synced folder (to
+sync across machines) — a plain file read/write there can stall for minutes
+if the sync client needs to fetch an evicted local copy or is otherwise slow.
+FastMCP calls a synchronous tool function directly on its single asyncio
+event loop with **no thread-pool offloading** (confirmed by reading
+`mcp/server/fastmcp/utilities/func_metadata.py`'s
+`call_fn_with_arg_validation`: it just does `fn(**arguments)` for a sync
+`fn`). That means a single stalled synchronous call previously froze the
+*entire* server, not just that one request.
+
+This was observed directly: `kanban_update_card` didn't return for 4 minutes,
+and a `kanban_read` issued around the same time also hung, then the server
+"recovered on its own" once the underlying I/O call finally returned. There
+is no lock anywhere in `storage.py` — a blocked event loop produces the
+identical symptom without one, which is what actually happened.
+
+The fix (`_run` in `server.py`) offloads each tool's blocking call to a
+worker thread via `anyio.to_thread.run_sync`, so a stall in one request
+doesn't block any other concurrent request, plus wraps it in a timeout
+(`_SLOW_OPERATION_TIMEOUT_SECONDS`) so a genuinely stuck call returns an
+informative message instead of hanging silently — the underlying thread
+keeps running to completion in the background regardless (Python can't
+forcibly kill a blocked thread), so a write that eventually does land still
+lands, just without the caller having waited for it. `tests/test_server.py`
+has a regression test asserting a slow call doesn't block a concurrent fast
+one.
+
+### Why `_run` also takes a `project` lock
+
+Every `storage.py` kanban/note/decision function does a non-atomic
+read-modify-write against one project's files (e.g. `kanban_update_card`:
+read the board, mutate it in memory, write it back). Before `_run` existed,
+FastMCP's single event loop made this safe *by accident* — two tool calls
+could never actually run at the same time, so a read-modify-write always
+completed before the next one started. Thread-offloading removes that
+accidental serialization: two concurrent calls touching the same project can
+now genuinely race, both reading the same starting state and the second
+write silently clobbering the first. Reproduced directly during review: two
+concurrent `kanban_add` calls to one board, one card vanished with no error
+to either caller.
+
+`_run(func, *args, project=...)` takes one or more `asyncio.Lock`s keyed by
+`storage._slugify(project)` — the same normalization `storage.py` itself
+uses to resolve a project name, so `'JobSearch'` and `'job-search'` share one
+lock rather than getting two and still racing. Only **write**-triggering
+tool wrappers pass `project=` (`decision_log`, `kanban_create`,
+`kanban_add`, `kanban_update_card`, `note_write`, ...) — read-only tools
+(`kanban_read`, `note_list`, `decision_read`, `kanban_search`,
+`project_summary`, ...) call `_run` with no `project` kwarg at all and take
+no lock.
+
+An earlier version of this fix locked reads too, on the theory that it would
+stop a read from ever observing a half-written file mid-mutation. That
+traded one bug for a worse one: since the lock has no maximum hold time, a
+*permanently* wedged write (not just a slow one) meant every subsequent
+read **and** write for that project timed out every 25s, forever — strictly
+worse than the pre-lock behavior, where a stuck write didn't block reads at
+all. The actual fix for the half-written-file concern belongs at the
+storage layer, not the lock: every write in `storage.py` now goes through
+`_atomic_write_text` (write to a same-directory temp file, then
+`os.replace()`), so a lock-free reader can only ever observe the complete
+old file or the complete new one, never bytes from a write in progress.
+That makes it safe for reads to skip the lock entirely — they no longer
+need it for correctness, only writes serializing against other writes do.
+(There's still a narrow, harmless TOCTOU window a lock-free read can hit if
+a file is deleted/renamed by a concurrent write between resolving its path
+and reading it — `kanban_read`, `note_read`, `decision_read`, and
+`kanban_search` all catch `FileNotFoundError` around that read and treat it
+as "not found," the same outcome a slightly-earlier read would have gotten
+anyway, rather than letting the exception surface as a crash.)
+
+Global, multi-project calls (`kanban_list`, `project_list`) also pass no
+`project` and take no lock, since they don't do a per-project
+read-modify-write at all.
+
+`kanban_rename` passes a tuple, `project=(project, new_name)`, locking both
+its source and destination — locking only the source (an earlier version of
+this fix) left the destination name completely unprotected: two concurrent
+`kanban_rename` calls into the same `new_name` both passed the "does it
+already exist" check (neither held a lock on it) and the second clobbered
+the first. `_locks_for` resolves a `project` tuple to its distinct
+normalized slugs, sorted before acquiring — that global sort is what
+prevents a different deadlock: two calls each locking two of the same
+projects but requesting them in opposite order would otherwise be able to
+each hold the lock the other wants next. A `project` tuple whose entries
+share a slug (e.g. a pure recasing rename, `('JobSearch', 'jobsearch')`)
+dedupes to one lock rather than trying to acquire the same non-reentrant
+`asyncio.Lock` twice.
+
+The lock is held for the operation's true duration, not just for as long as
+the caller waits: `_run` wraps the call in `asyncio.create_task` +
+`asyncio.shield`, so a timeout only stops the *caller* from waiting longer —
+it does not cancel the underlying task or release its lock early. Releasing
+the lock on timeout would let a subsequent call for the same project start a
+new read-modify-write cycle while the first write is still in flight,
+reintroducing the identical race across a timeout-then-retry sequence.
+
+`_call_in_thread` still passes `abandon_on_cancel=True` to
+`anyio.to_thread.run_sync` — that only matters for a *genuine* external
+cancellation of the task (e.g. process shutdown cancelling every outstanding
+asyncio task), since `asyncio.shield` already stops `_run`'s own timeout
+from ever reaching the task as a cancellation. On a real shutdown, letting
+the thread detach immediately (rather than blocking exit until it finishes)
+is the right trade: the whole process — and `_project_locks` along with it —
+is going away, so there's no future caller left in that process to exploit
+the lock being released early.
+
+If a call's task is still running when its caller times out, and it later
+raises an exception, that exception would otherwise vanish silently (a bare
+"Task exception was never retrieved" warning with no context). The
+`TimeoutError` branch in `_run` attaches `_log_late_completion` as a
+done-callback specifically for this case, so a delayed failure logs
+`delayed_operation_failed` and a delayed success logs
+`delayed_operation_completed` — visible in the server's logs even though the
+original caller already moved on.
+
+`tests/test_server.py` covers: same-project calls serialize without losing
+an update, normalized-spelling variants share one lock, different projects
+still run fully concurrently, a timed-out call keeps its lock until it
+genuinely finishes, a call made with no `project=` never waits on any lock
+(even behind an arbitrarily slow same-named write), and a late
+success/failure after a timeout gets logged instead of disappearing.
 
 Kanban files follow the markdown-kanban format exactly. Columns are `## Column`
 headings. Cards are `### Card Title` under their column with optional body text

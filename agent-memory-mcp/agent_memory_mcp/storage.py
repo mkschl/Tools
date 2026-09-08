@@ -1,7 +1,9 @@
 """File-based storage under ~/.agent-memory/."""
 
+import contextlib
 import difflib
 import re
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -11,6 +13,27 @@ from jinja2 import Environment, FileSystemLoader
 import os
 
 from agent_memory_mcp import markdownlint
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write `content` to `path` as one atomic replace, never a partial file.
+
+    server.py's per-project lock only ever protects concurrent *writers*
+    against each other — read-only tools (kanban_read, note_read, ...)
+    deliberately take no lock at all, so a wedged write can't block reads for
+    the same project forever. That's only safe because every write here goes
+    through this helper: a reader can only ever observe the complete old
+    file or the complete new one, never bytes from a write in progress.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 def _check_storage_dir(path: Path, label: str) -> None:
@@ -159,19 +182,24 @@ def decision_log(project: str, summary: str, reasoning: str, create: bool = Fals
     display_name = d.name  # the existing dir's on-disk spelling, or `project` if new
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{date.today().isoformat()}.md"
-    if not path.exists():
-        header = _env.get_template("decision_header.md.j2").render(
+    if path.exists():
+        existing = path.read_text()
+    else:
+        existing = _env.get_template("decision_header.md.j2").render(
             project=display_name,
             date=date.today().isoformat(),
         )
-        path.write_text(header)
     entry = _env.get_template("decision_entry.md.j2").render(
         time=datetime.now().strftime("%H:%M"),
         summary=summary,
         reasoning=reasoning,
     )
-    with open(path, "a") as f:
-        f.write(entry)
+    # A plain append (the previous approach) isn't atomic from a lock-free
+    # reader's point of view — a read could observe a half-written entry
+    # mid-append. Composing the full content and replacing the file in one
+    # atomic write (see _atomic_write_text) means a reader only ever sees
+    # the complete file before or after this entry, never a partial one.
+    _atomic_write_text(path, existing + entry)
     return f"Logged to {path}"
 
 
@@ -197,7 +225,15 @@ def decision_read(project: str | None = None, days: int = 7) -> str:
                 continue
             if file_date < cutoff:
                 continue
-            results.append(f"### {root.name} / {f.stem}\n\n{f.read_text()}")
+            try:
+                content = f.read_text()
+            except FileNotFoundError:
+                # Read-only calls take no lock (see server.py), so a file
+                # listed by glob() a moment ago could have been renamed/moved
+                # away by a concurrent write since — treat it like it was
+                # never there rather than letting the read crash.
+                continue
+            results.append(f"### {root.name} / {f.stem}\n\n{content}")
 
     return "\n---\n".join(results) if results else "No recent decisions found."
 
@@ -323,7 +359,7 @@ def kanban_create(project: str, columns: list[str]) -> str:
 def _save_board(project: str, title: str, columns: list[Column]) -> None:
     path = _kanban_path(project)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_render_board(title, columns))
+    _atomic_write_text(path, _render_board(title, columns))
 
 
 def kanban_add_column(project: str, column: str, after: str = "") -> str:
@@ -539,8 +575,27 @@ def kanban_rename(project: str, new_name: str) -> str:
         return f"Board '{new_name}' already exists."
 
     board_title, columns = _parse_board(path.read_text())
-    path.unlink()
-    _save_board(new_name, new_name, columns)
+    if same_project:
+        # Pure re-casing: on a case-insensitive-but-preserving filesystem
+        # (macOS), writing to the new casing while the old casing's
+        # directory entry still exists does NOT relabel it — the OS keeps
+        # the original casing and just replaces content in place. The old
+        # entry has to be removed first for the new casing to actually take
+        # effect. A lock-free reader (see server.py) could transiently see
+        # "no board found" in the instant between these two calls; every
+        # read function already treats a vanished file as "not found"
+        # rather than crashing (see kanban_read etc.), so this is a
+        # harmless, narrow blip for a rare operation, not a bug.
+        path.unlink()
+        _save_board(new_name, new_name, columns)
+    else:
+        # A genuine rename: write the new board before removing the old
+        # one, so a concurrent lock-free read of the OLD name never
+        # observes a gap where the board has vanished entirely (old and
+        # new are genuinely different files here, so this ordering is safe
+        # and doesn't have the re-casing case's same-inode problem above).
+        _save_board(new_name, new_name, columns)
+        path.unlink()
 
     # A genuine rename (not just a re-casing) also moves this project's notes
     # and decisions along with it — otherwise they stay filed under the old
@@ -574,7 +629,14 @@ def kanban_search(query: str, project: str = "") -> str:
     query_lower = query.lower()
     matches = []
     for f in files:
-        _, columns = _parse_board(f.read_text())
+        try:
+            content = f.read_text()
+        except FileNotFoundError:
+            # Read-only calls take no lock (see server.py), so a board listed
+            # a moment ago could have been renamed/deleted by a concurrent
+            # write since — skip it rather than letting the read crash.
+            continue
+        _, columns = _parse_board(content)
         for col in columns:
             for card in col.cards:
                 if (
@@ -588,9 +650,14 @@ def kanban_search(query: str, project: str = "") -> str:
 
 def kanban_read(project: str) -> str:
     path = _kanban_path(project)
-    if not path.exists():
+    try:
+        content = path.read_text()
+    except FileNotFoundError:
+        # Read-only calls take no lock (see server.py), so this can race a
+        # concurrent kanban_rename/kanban_delete for the same project — a
+        # plain exists()-then-read_text() has a gap where the file could
+        # vanish in between; read directly and treat a miss as "not found."
         return f"No board found for project '{project}'."
-    content = path.read_text()
     note_keys = sorted(p.stem for p in _notes_dir(project).glob("*.md"))
     if note_keys:
         content += f"\n---\nNotes in this project: {', '.join(note_keys)}\n"
@@ -608,7 +675,7 @@ def note_write(project: str, key: str, content: str, create: bool = False) -> st
     d.mkdir(parents=True, exist_ok=True)
     body = f"# {key}\n\n_Updated: {date.today().isoformat()}_\n\n{content}\n"
     fixed_body, remaining_issues = markdownlint.fix_content(body)
-    (d / f"{key}.md").write_text(fixed_body)
+    _atomic_write_text(d / f"{key}.md", fixed_body)
     result = f"Written note '{key}' for project '{project}'."
     if remaining_issues:
         result += f"\n\nmarkdownlint issues:\n{markdownlint.format_issues(remaining_issues)}"
@@ -617,9 +684,10 @@ def note_write(project: str, key: str, content: str, create: bool = False) -> st
 
 def note_read(project: str, key: str) -> str:
     path = _notes_dir(project) / f"{key}.md"
-    if not path.exists():
+    try:
+        return path.read_text()
+    except FileNotFoundError:
         return f"Note '{key}' not found for project '{project}'."
-    return path.read_text()
 
 
 def note_list(project: str) -> str:

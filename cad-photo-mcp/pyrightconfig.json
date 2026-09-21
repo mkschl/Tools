@@ -1,0 +1,5 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["cad_photo_mcp", "tests"]
+}

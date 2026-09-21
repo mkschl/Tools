@@ -1,0 +1,26 @@
+[openscad]
+executable = "openscad"
+# Pinned so a user's GUI colour scheme can never change the background that
+# silhouette detection keys on.
+colorscheme = "Cornfield"
+background = [255, 255, 229]
+timeout_seconds = 300
+
+[render]
+size_px = 1600
+# Starting camera distance, as a multiple of the model's larger XY extent.
+initial_distance_factor = 3.0
+# Each clipped attempt widens the camera distance by this factor.
+fit_growth = 1.4
+max_fit_attempts = 8
+# Summed RGB difference from the background above which a pixel is "model".
+silhouette_tolerance = 12
+
+[calibration]
+# Grid/reference scale and one caliper-measured feature must agree within this.
+cross_check_tolerance_pct = 2.0
+store_dir = "~/.cache/cad-photo-mcp/calibrations"
+
+[overlay]
+solid_colour = [255, 0, 200]
+section_colour = [0, 220, 255]

@@ -1,0 +1,38 @@
+[project]
+name = "cad-photo-mcp"
+version = "0.1.0"
+description = "MCP server for measuring photos and comparing CAD models against them"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.27,<2",
+    "structlog>=24.1",
+    "pillow>=10.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+cad-photo-mcp = "cad_photo_mcp.server:main"
+
+[build-system]
+requires = ["uv_build>=0.8"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "cad_photo_mcp"
+module-root = ""
+
+[tool.ruff]
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "PLC0415"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

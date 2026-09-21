@@ -12,6 +12,7 @@ below).
 | --- | --- |
 | [`lmstudio-code-cli`](lmstudio-code-cli/) | Terminal-based coding agent powered by LM Studio, with theming, MCP gateway integration, and file attachments |
 | [`agent-memory-mcp`](agent-memory-mcp/) | Shared persistent memory MCP server (decision log, kanban boards, notes) for agent workflows |
+| [`cad-photo-mcp`](cad-photo-mcp/) | MCP server for measuring parts in calibrated photos and overlaying OpenSCAD models on them at true scale |
 | [`kubectl-mcp`](kubectl-mcp/) | Generic MCP server exposing `kubectl` cluster operations as tools |
 | [`parallels-mcp`](parallels-mcp/) | MCP server for Parallels Desktop VM lifecycle control via `prlctl` |
 | [`threemf-paint-mcp`](threemf-paint-mcp/) | MCP server for inspecting and recoloring Bambu Studio / OrcaSlicer `.3mf` multi-color paint data |

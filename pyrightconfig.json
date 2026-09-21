@@ -3,6 +3,7 @@
   "venv": ".venv",
   "include": [
     "agent-memory-mcp",
+    "cad-photo-mcp",
     "kubectl-mcp",
     "lmstudio-code-cli",
     "parallels-mcp",

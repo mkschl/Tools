@@ -1,0 +1,84 @@
+[shell]
+# The read-only safety rule, enforced structurally: only these binaries can
+# ever be executed. pkill, rm, defaults and friends are absent by design, so no
+# tool can kill a process or change a setting even by accident.
+allowed_commands = ["log", "pmset", "sysctl", "pgrep", "spindump"]
+default_timeout_seconds = 60
+# spindump -i decodes a binary report and is slower than the query commands.
+spindump_timeout_seconds = 180
+# A single unified-log line that exceeds this is skipped rather than buffered.
+max_line_bytes = 1048576
+
+[log]
+default_window = "1h"
+# Seven days. A wider window scans for minutes and says nothing a narrower one
+# would not have said first.
+max_window_seconds = 604800
+# Hard stop on a log stream. The Music artwork loop produced ~471k lines in two
+# hours, so this has to clear that without being unbounded.
+max_scanned_lines = 2000000
+default_group_limit = 40
+max_group_limit = 200
+# Raw, un-normalized lines are only ever handed out a few at a time.
+default_sample_lines = 5
+max_sample_lines = 20
+# First lines of a process's log, used to find who opened an auth session.
+auth_origin_lines = 40
+
+[log.presets]
+ui_processes = 'process IN {"WindowServer","loginwindow","ControlCenter","SystemUIServer","Dock","SecurityAgent","coreautha"}'
+errors = 'messageType == error OR messageType == fault'
+hang_hints = 'eventMessage CONTAINS[c] "hang" OR eventMessage CONTAINS[c] "timed out"'
+
+[modal]
+auth_processes = ["coreautha", "SecurityAgent", "UserNotificationCenter", "universalAccessAuthWarn"]
+touchid_window = "10m"
+# Both halves of the story: loginwindow's add/clear bookkeeping, and coreautha's
+# own renewal marker from the signals table.
+touchid_predicate = '(process == "loginwindow" AND eventMessage CONTAINS "TouchIDBlockScreenLock") OR eventMessage CONTAINS "SACAssertScreenLockViaTouchIDBlocked"'
+# A line naming one of these takes an assertion; one naming a clear marker
+# releases it. Lines matching neither are continuation fragments of the message
+# above them and are not events — counting them invents prompts that are not open.
+touchid_assert_markers = [
+    "addNewTouchIDBlockScreenLockAssertion",
+    "SACAssertScreenLockViaTouchIDBlocked",
+]
+touchid_clear_markers = ["clearTouchIDBlockScreenLockAssertion"]
+# A held assertion is renewed at roughly this interval while a prompt is open.
+touchid_renewal_seconds = 54
+touchid_sample_lines = 5
+
+[reports]
+directories = ["~/Library/Logs/DiagnosticReports", "/Library/Logs/DiagnosticReports"]
+default_limit = 50
+max_limit = 200
+# Frames of the faulting thread to return; the top of the stack names the cause.
+max_frames = 25
+# Suffixes whose payload is a binary spindump rather than JSON.
+spindump_suffixes = [".shutdownStall", ".spin", ".hang", ".stackshot"]
+# A decoded spindump runs to thousands of lines; the blocked processes are
+# named near the top, so only the head is returned.
+spindump_head_lines = 200
+
+[timeline]
+default_wake_count = 20
+max_wake_count = 100
+
+[redact]
+# Identity is masked in every result by default. Each system tool takes
+# redact=false to opt out for one call, when a path, SSID or host is itself the
+# clue rather than noise. Process names, system paths, symbols and error codes
+# are never masked — they are the diagnosis.
+enabled = true
+# The user's own home becomes "~" rather than a placeholder, so a report path
+# survives as the argument to the next tool call.
+home_placeholder = "~"
+user_placeholder = "<user>"
+host_placeholder = "<host>"
+ssid_placeholder = "<ssid>"
+ip_placeholder = "<ip>"
+mac_placeholder = "<mac>"
+email_placeholder = "<email>"
+# Below this, a username is likely a common word ("dev", "adm") and masking it
+# as a bare word would eat real text; the home path already covers what matters.
+min_username_length = 4

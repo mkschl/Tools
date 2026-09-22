@@ -1,0 +1,5 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["macos_diag_mcp", "tests"]
+}

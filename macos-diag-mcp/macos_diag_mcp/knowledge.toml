@@ -1,0 +1,110 @@
+# Domain knowledge from CLAUDE.md, kept as data so it can be corrected after an
+# investigation without touching code. Derived from macOS 27.0 (Build 26A428).
+
+[playbook]
+summary = """
+Diagnosing a macOS UI problem: a menu bar that is greyed out, a hang, a wake \
+issue, or a process logging in a loop. Work the triage order and stop as soon \
+as the cause is clear."""
+
+safety_rules = [
+    "Read-only by default. Never kill processes, delete files, or change settings without asking first.",
+    "This server never runs sudo. With pam_tid enabled, sudo opens a Touch ID prompt via coreautha, and a prompt left pending can lock the menu bar (see the Touch ID known case). If a step needs sudo, the tool hands back the command for Martin to run himself and he cancels any unanswered prompt.",
+    "Never dump raw logs into the context. Every query is bounded by a time window and comes back grouped and capped; use log_sample only to recover identifiers a grouped result hid.",
+    "Logs contain usernames, paths, hostnames, SSIDs and IP addresses. Summarize instead of quoting, and warn before anything is shared outside the machine.",
+]
+
+lessons = [
+    "Verify assumptions with a direct test before recommending removal of software. Martin wants to keep tools he uses.",
+    "Compare with the MacBook Pro early. A clean second machine separates local state from OS bugs.",
+    "If a report or log shows the same pattern before and after a restart, it does not explain a problem that the restart fixed.",
+    "For an Apple bug report, capture a sysdiagnose while the problem is active (Shift + Ctrl + Option + Cmd + .) and file it via Feedback Assistant.",
+]
+
+[[playbook.steps]]
+number = 1
+title = "Modal state"
+detail = """
+A menu bar that is entirely greyed out, including the Apple menu, means macOS \
+is in a modal state: a dialog waits for input, or the frontmost app is hung. \
+The dialog may be invisible — off-screen, on a sleeping display, or with an \
+invalid window after a display reconfiguration. Hung apps cannot be detected \
+reliably from the CLI: ask Martin to check Force Quit Applications \
+(Cmd + Option + Esc)."""
+tools = ["check_modal_state", "auth_session_origin"]
+
+[[playbook.steps]]
+number = 2
+title = "Timeline"
+detail = "Establish the last sleep/wake events and the current boot time, so every later query can be bounded by them."
+tools = ["system_timeline"]
+
+[[playbook.steps]]
+number = 3
+title = "Diagnostic reports"
+detail = "Check the reports written inside the time window. A report that also occurs after a restart does not explain a state that a restart fixed — use that to rule causes out."
+tools = ["list_diagnostic_reports", "read_diagnostic_report", "decode_spindump"]
+
+[[playbook.steps]]
+number = 4
+title = "Unified log"
+detail = "Query the relevant processes over a bounded window, grouped and normalized. Normalization hides identifiers and error codes; when a top message looks relevant, recover a few raw lines."
+tools = ["log_summary", "log_sample"]
+
+[[playbook.steps]]
+number = 5
+title = "Compare machines"
+detail = "Compare with the MacBook Pro if the problem might be machine-specific. A clean second machine separates local state from an OS bug. This is a manual step: run the same query there and compare the summaries."
+tools = []
+
+[[signals]]
+pattern = "SACAssertScreenLockViaTouchIDBlocked"
+process = "coreautha"
+meaning = "A Touch ID prompt is open, possibly invisible. Renewed every ~54 s for as long as it waits. Do not judge this by counting matching lines: loginwindow logs assertions being taken AND released under the same search, and one message spans several lines. What decides it is whether the last event was a take with no release after it — check_modal_state does this."
+
+[[signals]]
+pattern = "_CGXPackagesSetWindowConstraints: Invalid window"
+process = "WindowServer"
+meaning = "A window lost its valid placement, typical after display changes. Relevant in large numbers, not as a one-off."
+
+[[signals]]
+pattern = "ActiveDisplayList count = 0"
+process = "loginwindow"
+meaning = "No active display at that moment: displays asleep or re-enumerating."
+
+[[signals]]
+pattern = "failed set_cursor_surface"
+process = "WindowServer"
+meaning = "Display pipeline trouble around wake."
+
+[[signals]]
+pattern = "timed out fence"
+process = "WindowServer"
+meaning = "Display pipeline trouble around wake."
+
+[[signals]]
+pattern = "ExcUserFault IconServices -[ISIconManager _init]"
+process = "IconServices"
+meaning = "Known macOS 27.0 background fault. Occurs before and after restarts, so it is not a cause."
+
+[[signals]]
+pattern = "artwork fetch failed for"
+process = "Music"
+meaning = "Music retry loop for one item's artwork. Convert the A.B.C identifier with music_persistent_ids and look the item up; see the Music known case."
+
+[[cases]]
+name = "Menu bar greyed out after wake from deep sleep"
+date = "2026-09-22"
+symptom = "Whole menu bar greyed out, Apple menu unresponsive, no visible dialog, no hung app. Only a restart helped."
+cause = "Strong evidence: a Touch ID sudo prompt from iTerm2 was pending before sleep. The coreautha session survived the wake, its window became invalid after the display reconfiguration, and the modal state stayed."
+recovery = "Without a restart: quit coreautha in Activity Monitor, or press Ctrl + C in the iTerm2 tab with the waiting sudo."
+prevention = "Do not leave sudo prompts pending. Keep pam_tid.so in /etc/pam.d/sudo_local. With iTerm2's \"Allow sessions to survive logging out and back in\" enabled, add pam_reattach above pam_tid.so or disable that option."
+
+[[cases]]
+name = "Music artwork retry loop"
+date = "2026-09-22"
+symptom = "~471,000 'artwork fetch failed ... Code=9069' errors from Music in about two hours, always the same identifier."
+cause = "The playlist \"Ambient\" had no cover. Setting a cover stopped the loop."
+recovery = "Convert the A.B.C identifier to Music persistent IDs with music_persistent_ids, look the track and playlist up via AppleScript, and give the item a cover."
+prevention = "Stream Deck's Apple Music plugin was suspected first but was not involved. Verify attribution by quitting the suspected app and re-checking the log."
+

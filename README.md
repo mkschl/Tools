@@ -14,6 +14,7 @@ below).
 | [`agent-memory-mcp`](agent-memory-mcp/) | Shared persistent memory MCP server (decision log, kanban boards, notes) for agent workflows |
 | [`cad-photo-mcp`](cad-photo-mcp/) | MCP server for measuring parts in calibrated photos and overlaying OpenSCAD models on them at true scale |
 | [`kubectl-mcp`](kubectl-mcp/) | Generic MCP server exposing `kubectl` cluster operations as tools |
+| [`macos-diag-mcp`](macos-diag-mcp/) | MCP server for read-only diagnosis of macOS UI problems — modal hangs, wake issues, runaway logging |
 | [`parallels-mcp`](parallels-mcp/) | MCP server for Parallels Desktop VM lifecycle control via `prlctl` |
 | [`threemf-paint-mcp`](threemf-paint-mcp/) | MCP server for inspecting and recoloring Bambu Studio / OrcaSlicer `.3mf` multi-color paint data |
 | [`wiki-mcp`](wiki-mcp/) | MCP server for read/search/write access to an external markdown wiki repo (link resolution, backlinks) |

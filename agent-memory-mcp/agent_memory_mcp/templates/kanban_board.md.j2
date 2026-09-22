@@ -17,7 +17,7 @@
   - priority: {{ card.priority }}
 {% endif %}
 {% if card.notes %}
-  - notes: [{{ card.notes | join(', ') }}]
+  - notes: [{% for n in card.notes %}[{{ n }}](../notes/{{ notes_dir }}/{{ n }}.md){% if not loop.last %}, {% endif %}{% endfor %}]
 {% endif %}
 {% for line in card.extra_meta %}
 {{ line }}

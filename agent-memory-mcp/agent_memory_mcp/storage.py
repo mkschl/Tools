@@ -323,8 +323,16 @@ def _parse_board(content: str) -> tuple[str, list[Column]]:
         elif stripped.startswith("- priority: "):
             current_card.priority = stripped[12:]
         elif stripped.startswith("- notes: "):
-            notes_str = stripped[9:].strip().strip("[]")
-            current_card.notes = [n.strip() for n in notes_str.split(",") if n.strip()]
+            raw = stripped[9:].strip()
+            if raw.startswith("[") and raw.endswith("]"):
+                raw = raw[1:-1]
+            # Notes render as markdown links; boards written before that still
+            # hold bare keys, so both shapes have to parse back to the key.
+            links = re.findall(r"\[([^\]]+)\]\([^)]*\)", raw)
+            if links:
+                current_card.notes = links
+            else:
+                current_card.notes = [n.strip() for n in raw.split(",") if n.strip()]
         elif stripped == "- steps:":
             in_steps = True
         elif line.startswith("  ") and stripped:
@@ -335,8 +343,10 @@ def _parse_board(content: str) -> tuple[str, list[Column]]:
     return board_title, columns
 
 
-def _render_board(title: str, columns: list[Column]) -> str:
-    return _env.get_template("kanban_board.md.j2").render(title=title, columns=columns)
+def _render_board(title: str, columns: list[Column], notes_dir: str) -> str:
+    return _env.get_template("kanban_board.md.j2").render(
+        title=title, columns=columns, notes_dir=notes_dir
+    )
 
 
 def _load_board(project: str) -> tuple[str, list[Column]] | None:
@@ -359,7 +369,7 @@ def kanban_create(project: str, columns: list[str]) -> str:
 def _save_board(project: str, title: str, columns: list[Column]) -> None:
     path = _kanban_path(project)
     path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_text(path, _render_board(title, columns))
+    _atomic_write_text(path, _render_board(title, columns, _notes_dir(project).name))
 
 
 def kanban_add_column(project: str, column: str, after: str = "") -> str:

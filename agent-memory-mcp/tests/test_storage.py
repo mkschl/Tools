@@ -877,7 +877,68 @@ def test_kanban_update_card_with_existing_note_succeeds(tmp_path):
     result = storage.kanban_update_card("p", "Card", notes=["arch"])
     assert "Updated" in result
     content = (tmp_path / "kanban" / "p.md").read_text()
-    assert "notes: [arch]" in content
+    assert "notes: [[arch](../notes/p/arch.md)]" in content
+
+
+def test_kanban_notes_render_as_relative_link(tmp_path):
+    storage.kanban_create("p", ["To Do"])
+    storage.note_write("p", "arch", "content", create=True)
+    storage.kanban_add("p", "To Do", "Card", notes=["arch"])
+
+    content = (tmp_path / "kanban" / "p.md").read_text()
+    assert "[arch](../notes/p/arch.md)" in content
+    # the link resolves to the note that actually exists
+    board = tmp_path / "kanban" / "p.md"
+    assert (board.parent / "../notes/p/arch.md").resolve() == (tmp_path / "notes" / "p" / "arch.md")
+
+
+def test_kanban_notes_survive_a_round_trip(tmp_path):
+    """Every write reloads and re-renders the board, so a link the parser
+    cannot read back would corrupt the notes field on the next edit."""
+    storage.kanban_create("p", ["To Do"])
+    storage.note_write("p", "arch", "content", create=True)
+    storage.kanban_add("p", "To Do", "Card", notes=["arch"])
+
+    # touching any other card forces a full load → render cycle
+    storage.kanban_add("p", "To Do", "Unrelated")
+
+    _title, columns = storage._load_board("p")
+    card = next(c for c in columns[0].cards if c.title == "Card")
+    assert card.notes == ["arch"]
+
+    content = (tmp_path / "kanban" / "p.md").read_text()
+    assert content.count("[arch](../notes/p/arch.md)") == 1
+    assert "../notes/p/../notes" not in content  # not re-wrapped
+
+
+def test_kanban_legacy_bare_note_keys_still_parse(tmp_path):
+    """Boards written before notes became links hold bare keys. The first write
+    after upgrading reloads such a board — dropping the keys there would lose
+    the link silently."""
+    storage.kanban_create("p", ["To Do"])
+    storage.note_write("p", "arch", "content", create=True)
+    board = tmp_path / "kanban" / "p.md"
+    board.write_text("# p\n\n## To Do\n\n### Card\n\n  - notes: [arch]\n\n")
+
+    _title, columns = storage._load_board("p")
+    assert columns[0].cards[0].notes == ["arch"]
+
+    # and the next write upgrades it to a link rather than mangling it
+    storage.kanban_add("p", "To Do", "Unrelated")
+    assert "[arch](../notes/p/arch.md)" in board.read_text()
+
+
+def test_kanban_multiple_notes_round_trip(tmp_path):
+    storage.kanban_create("p", ["To Do"])
+    storage.note_write("p", "arch", "content", create=True)
+    storage.note_write("p", "baseline", "content", create=True)
+    storage.kanban_add("p", "To Do", "Card", notes=["arch", "baseline"])
+
+    storage.kanban_add("p", "To Do", "Unrelated")
+
+    _title, columns = storage._load_board("p")
+    card = next(c for c in columns[0].cards if c.title == "Card")
+    assert card.notes == ["arch", "baseline"]
 
 
 def test_kanban_read_appends_note_keys():

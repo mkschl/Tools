@@ -331,7 +331,7 @@ def test_old_layout_message_comes_back_through_the_server(memory_root):
     async def go():
         return await server._run(storage.project_list)
 
-    assert "migration" in asyncio.run(go())
+    assert "older layout" in asyncio.run(go())
 
 
 def test_top_level_directories_with_only_hidden_files_do_not_count(memory_root):

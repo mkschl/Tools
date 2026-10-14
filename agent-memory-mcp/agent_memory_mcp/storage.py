@@ -236,8 +236,9 @@ def _assert_current_layout() -> None:
     if found:
         raise LegacyLayoutError(
             f"The storage at {STORAGE_ROOT} still has an older layout ({', '.join(found)} at the "
-            f"top level, outside {PROJECTS_DIR}/ and {NOTES_DIR}/). Run the layout migration "
-            "first (tools/migrate-layout-cli); nothing was read or written."
+            f"top level, outside {PROJECTS_DIR}/ and {NOTES_DIR}/). Restore a backup or move "
+            "the folders by hand so the root holds only projects/ and notes/; nothing was "
+            "read or written."
         )
 
 

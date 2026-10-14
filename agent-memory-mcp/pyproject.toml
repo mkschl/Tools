@@ -31,8 +31,6 @@ include = ["agent_memory_mcp*"]
 agent_memory_mcp = ["templates/*.j2"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "tools/migrate-layout-cli/tests"]
-pythonpath = ["tools/migrate-layout-cli/src"]
 # no pytest-asyncio plugin needed — storage functions are synchronous, and
 # the few async tests for server.py's thread-offloading wrapper drive the
 # event loop directly with asyncio.run() instead

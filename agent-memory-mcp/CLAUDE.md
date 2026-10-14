@@ -29,9 +29,7 @@ free text, project/folder detection and conflicts in both directions,
 per-segment name matching, `project_list` (tree, kind wording, `folder` filter,
 collisions), `project_move` (dry run, success, every refusal, emptied folders
 removed, concurrent moves into one target, board links still resolving),
-`kanban_rename`, standalone notes, and the refusal of older layouts. The
-migration command has its own tests in `tools/migrate-layout-cli/tests/`; a
-bare `uv run pytest` runs both.
+`kanban_rename`, standalone notes, and the refusal of older layouts.
 
 Tests live in `tests/test_storage.py` and cover all storage functions using
 `tmp_path` (via a `monkeypatch` fixture on `STORAGE_ROOT`) so nothing touches
@@ -138,49 +136,48 @@ exist.
 The root may contain only `projects/` and `notes/` (plus hidden entries). If
 it also has `kanban/` or `decisions/` with visible entries, a `notes/` with
 sub-directories (the type-first layout), or project folders directly at the
-top, every tool raises `LegacyLayoutError` ("run the migration first") and
-writes nothing; the server logs a warning at startup. This keeps old and new
-data from ever mixing. A top-level `notes/` that holds only files is the
+top, every tool raises `LegacyLayoutError` (restore a backup or move the
+folders by hand) and writes nothing; the server logs a warning at startup.
+This keeps old and new data from ever mixing. A top-level `notes/` that holds only files is the
 standalone notes, and a leftover `kanban/.markdownlint.json` (hidden entries
 only) does not count.
 
-### Layout migration
+### Layout history
 
-`tools/migrate-layout-cli` brought the real storage from the type-first layout
-(and the interim "projects at the root" layout) to the current one. It was run
-on 2026-10-14 and can be deleted once the backups are no longer needed. Dry
-run is the default; `--apply` copies the whole root to a timestamped
-`<root>-backup-…` directory first.
+The storage went through two earlier layouts before the current one: first
+type-first (`kanban/<project>.md`, `notes/<project>/<key>.md`,
+`decisions/<project>/…` at the root), then project directories directly at the
+root. It was migrated on 2026-10-14 with a one-off command,
+`tools/migrate-layout-cli`, which has since been removed; it lives in git
+history (`git log --stat -- tools/migrate-layout-cli`). Backups of the
+pre-migration state sit next to the storage root as
+`<root>-backup-<timestamp>` and can be deleted once they are no longer
+needed.
 
-```bash
-uv run --project tools/migrate-layout-cli migrate-layout \
-  --root "$AGENT_MEMORY_DIR" --mapping tools/migrate-layout-cli/mapping.toml
-```
+How the old projects were mapped (old name to new path); projects not listed
+kept their path:
 
-- **Type-first to current:** each project is assembled from the three trees and
-  written to `projects/<mapped path>` (board, notes, decisions; the board's
-  note links are rewritten from `../notes/<name>/<key>.md` to
-  `notes/<key>.md`). The mapping is a TOML file (`[projects]`, old name to new
-  path), so no project name is hardcoded in the source. Projects missing from
-  it keep their path. Empty directories are dropped.
-- **Projects at the root to current:** every project directory or folder at
-  the top of the root is moved into `projects/` unchanged; the mapping is not
-  used. It refuses when `projects/` already holds something.
-- **Both at once** is refused; migrate one layout at a time.
-- **A name that was both a project and a folder** (`JobSearch`: a board and a
-  note directly in `notes/JobSearch/`, plus sub-folders of notes) is read as
-  the project made of its own files and as one project per sub-folder. The
-  mapping must say where the own files go (`JobSearch = "JobSearch/Overview"`),
-  otherwise the command refuses.
-- It also refuses duplicate or existing targets and invalid or reserved names,
-  prints note keys and decision dates only (never contents; the health notes
-  are only moved), and after `--apply` checks that the file count is unchanged
-  and reports anything left in the old directories.
-- After a migration: confirm `project_list` against the backup, refresh the
-  MCPGateway tool list and restart the server, and update anything that still
-  mentions the old paths (`.vscode/settings.json` and `.markdownlint.json` in
-  the storage root, other `CLAUDE.md` or memory files, scripts that call the
-  tools).
+| Old name | New path |
+| --- | --- |
+| AzureAIConsultantTraining | Work/AzureAIConsultantTraining |
+| DockerProjects | Tech/DockerProjects |
+| techreference | Tech/Reference |
+| AIProjects | Tech/AIProjects |
+| 3DPrinting | Personal/Hobby/3DPrinting |
+| OpenSCADProjects | Personal/Hobby/OpenSCADProjects |
+| RoomClimateApp | Personal/RoomClimateApp |
+| Housing | Personal/Housing |
+| Diabetes | Health/Diabetes |
+| TemplateAppProject | Templates/TemplateAppProject |
+| JobSearch | JobSearch/Overview |
+
+`JobSearch` had been both a project (a board and one note) and a folder of
+per-company notes. It became a folder: its own board and note moved to the
+project `JobSearch/Overview`, and each company sub-folder became a notes-only
+project below it. After a layout change, refresh the MCPGateway tool list,
+restart the server, and update anything that still mentions the old paths
+(`.vscode/settings.json` and `.markdownlint.json` in the storage root, other
+`CLAUDE.md` or memory files, scripts that call the tools).
 
 ### Design decisions
 

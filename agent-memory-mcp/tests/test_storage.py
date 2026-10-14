@@ -82,7 +82,7 @@ def test_atomic_write_text_cleans_up_temp_file_on_failure(tmp_path, monkeypatch)
 
 def test_decision_log_creates_dated_file(tmp_path):
     storage.decision_log("myproject", "Use SQLite", "Simpler and sufficient", create=True)
-    path = tmp_path / "decisions" / "myproject" / f"{date.today().isoformat()}.md"
+    path = tmp_path / "projects" / "myproject" / "decisions" / f"{date.today().isoformat()}.md"
     assert path.exists()
     content = path.read_text()
     assert "Use SQLite" in content
@@ -92,7 +92,7 @@ def test_decision_log_creates_dated_file(tmp_path):
 def test_decision_log_header_written_once_for_new_file(tmp_path):
     storage.decision_log("p1", "D1", "R1", create=True)
     storage.decision_log("p1", "D2", "R2")
-    path = tmp_path / "decisions" / "p1" / f"{date.today().isoformat()}.md"
+    path = tmp_path / "projects" / "p1" / "decisions" / f"{date.today().isoformat()}.md"
     content = path.read_text()
     # The header line "p1 — YYYY-MM-DD" appears exactly once
     assert content.count(f"p1 — {date.today().isoformat()}") == 1
@@ -103,7 +103,7 @@ def test_decision_log_header_written_once_for_new_file(tmp_path):
 def test_decision_log_appends_to_existing_file(tmp_path):
     for summary in ("First", "Second", "Third"):
         storage.decision_log("p", summary, "reason", create=True)
-    path = tmp_path / "decisions" / "p" / f"{date.today().isoformat()}.md"
+    path = tmp_path / "projects" / "p" / "decisions" / f"{date.today().isoformat()}.md"
     content = path.read_text()
     assert "First" in content
     assert "Second" in content
@@ -125,7 +125,7 @@ def test_decision_read_returns_logged_decision():
 
 
 def test_decision_read_excludes_files_outside_window(tmp_path):
-    stale_dir = tmp_path / "decisions" / "beta"
+    stale_dir = tmp_path / "projects" / "beta" / "decisions"
     stale_dir.mkdir(parents=True)
     old_date = (date.today() - timedelta(days=10)).isoformat()
     (stale_dir / f"{old_date}.md").write_text("stale content")
@@ -152,7 +152,7 @@ def test_decision_read_no_storage_root_returns_message():
 def test_kanban_create_creates_board_with_given_columns(tmp_path):
     result = storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     assert "Created" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "## To Do" in content
     assert "## In Progress" in content
     assert "## Done" in content
@@ -172,7 +172,7 @@ def test_kanban_create_empty_columns_returns_error():
 def test_kanban_create_custom_columns(tmp_path):
     result = storage.kanban_create("p", ["Backlog", "Review", "Shipped"])
     assert "Created" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "## Backlog" in content
     assert "## Review" in content
     assert "## Shipped" in content
@@ -185,7 +185,7 @@ def test_kanban_add_column_creates_empty_column(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     result = storage.kanban_add_column("p", "Up Next")
     assert "Up Next" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "## Up Next" in content
 
 
@@ -210,7 +210,7 @@ def test_kanban_add_column_preserves_existing_cards(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     storage.kanban_add("p", "To Do", "Existing Card")
     storage.kanban_add_column("p", "Up Next")
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "Existing Card" in content
     assert "## Up Next" in content
 
@@ -219,7 +219,7 @@ def test_kanban_add_column_after_inserts_at_correct_position(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     result = storage.kanban_add_column("p", "Up Next", after="To Do")
     assert "Up Next" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     todo_pos = content.index("## To Do")
     up_next_pos = content.index("## Up Next")
     in_progress_pos = content.index("## In Progress")
@@ -231,7 +231,7 @@ def test_kanban_add_column_after_moves_existing_column(tmp_path):
     storage.kanban_add_column("p", "Up Next")  # appended at end
     result = storage.kanban_add_column("p", "Up Next", after="To Do")
     assert "Moved" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     todo_pos = content.index("## To Do")
     up_next_pos = content.index("## Up Next")
     in_progress_pos = content.index("## In Progress")
@@ -251,7 +251,7 @@ def test_kanban_add_creates_card_on_existing_board(tmp_path):
     storage.kanban_create("myproject", ["To Do", "In Progress", "Done"])
     result = storage.kanban_add("myproject", "To Do", "Fix bug #42")
     assert "Fix bug #42" in result
-    assert (tmp_path / "kanban" / "myproject.md").exists()
+    assert (tmp_path / "projects" / "myproject" / "board.md").exists()
 
 
 def test_kanban_add_no_board_returns_error():
@@ -262,7 +262,7 @@ def test_kanban_add_no_board_returns_error():
 def test_kanban_add_writes_card_to_board(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     storage.kanban_add("p", "To Do", "My Card")
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "My Card" in content
 
 
@@ -290,7 +290,7 @@ def test_kanban_add_with_metadata(tmp_path):
         priority="high",
         steps=["[ ] step one", "[x] step two"],
     )
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "2026-12-01" in content
     assert "frontend" in content
     assert "high" in content
@@ -307,7 +307,7 @@ def test_kanban_move_relocates_card(tmp_path):
     assert "Task A" in result
     assert "In Progress" in result
 
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     in_progress_pos = content.index("## In Progress")
     todo_pos = content.index("## To Do")
     card_pos = content.index("### Task A")
@@ -351,7 +351,7 @@ def test_kanban_delete_card_removes_card(tmp_path):
     storage.kanban_add("p", "To Do", "Remove Me")
     result = storage.kanban_delete_card("p", "Remove Me")
     assert "Deleted" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "Remove Me" not in content
 
 
@@ -380,7 +380,7 @@ def test_kanban_delete_column_removes_empty_column(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     result = storage.kanban_delete_column("p", "Done")
     assert "Deleted" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "## Done" not in content
 
 
@@ -417,7 +417,7 @@ def test_kanban_update_card_renames_card(tmp_path):
     storage.kanban_add("p", "To Do", "Old Title")
     result = storage.kanban_update_card("p", "Old Title", new_title="New Title")
     assert "New Title" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "New Title" in content
     assert "Old Title" not in content
 
@@ -426,7 +426,7 @@ def test_kanban_update_card_updates_due_and_priority(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     storage.kanban_add("p", "To Do", "My Card")
     storage.kanban_update_card("p", "My Card", due="2027-01-01", priority="high")
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "2027-01-01" in content
     assert "high" in content
 
@@ -435,7 +435,7 @@ def test_kanban_update_card_updates_tags_and_steps(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     storage.kanban_add("p", "To Do", "My Card")
     storage.kanban_update_card("p", "My Card", tags=["a", "b"], steps=["[ ] step"])
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "a" in content
     assert "step" in content
 
@@ -444,7 +444,7 @@ def test_kanban_update_card_untouched_fields_preserved(tmp_path):
     storage.kanban_create("p", ["To Do", "In Progress", "Done"])
     storage.kanban_add("p", "To Do", "My Card", due="2026-12-01", priority="low")
     storage.kanban_update_card("p", "My Card", new_title="Renamed")
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "2026-12-01" in content
     assert "low" in content
 
@@ -513,7 +513,7 @@ def test_kanban_delete_removes_board(tmp_path):
     storage.kanban_create("p", ["To Do", "Done"])
     result = storage.kanban_delete("p")
     assert "Deleted" in result
-    assert not (tmp_path / "kanban" / "p.md").exists()
+    assert not (tmp_path / "projects" / "p" / "board.md").exists()
 
 
 def test_kanban_delete_no_board_returns_error():
@@ -529,8 +529,8 @@ def test_kanban_rename_renames_board(tmp_path):
     storage.kanban_add("old", "To Do", "My Card")
     result = storage.kanban_rename("old", "new")
     assert "new" in result
-    assert not (tmp_path / "kanban" / "old.md").exists()
-    content = (tmp_path / "kanban" / "new.md").read_text()
+    assert not (tmp_path / "projects" / "old" / "board.md").exists()
+    content = (tmp_path / "projects" / "new" / "board.md").read_text()
     assert "My Card" in content
     assert "# new" in content
 
@@ -552,7 +552,9 @@ def test_kanban_rename_recasing_own_name_succeeds(tmp_path):
     result = storage.kanban_rename("JobSearch", "jobsearch")
     assert "already exists" not in result.lower()
     assert "renamed" in result.lower()
-    assert list((tmp_path / "kanban").glob("*.md")) == [tmp_path / "kanban" / "jobsearch.md"]
+    # the directory itself carries the new spelling, not just a lookup
+    assert [p.name for p in (tmp_path / "projects").iterdir()] == ["jobsearch"]
+    assert (tmp_path / "projects" / "jobsearch" / "board.md").is_file()
 
 
 def test_kanban_rename_moves_notes_and_decisions(tmp_path):
@@ -564,24 +566,37 @@ def test_kanban_rename_moves_notes_and_decisions(tmp_path):
     assert "no notes found" not in storage.note_list("CareerSearch").lower()
     assert "no decisions found" not in storage.decision_read("CareerSearch").lower()
     assert "k1" in storage.note_list("CareerSearch")
-    assert list((tmp_path / "notes").iterdir()) == [tmp_path / "notes" / "CareerSearch"]
-    assert list((tmp_path / "decisions").iterdir()) == [tmp_path / "decisions" / "CareerSearch"]
+    assert [p.name for p in (tmp_path / "projects").iterdir()] == ["CareerSearch"]
+    assert (tmp_path / "projects" / "CareerSearch" / "notes" / "k1.md").is_file()
+    assert (tmp_path / "projects" / "CareerSearch" / "decisions").is_dir()
 
 
-def test_kanban_rename_notes_conflict_returns_warning_without_overwriting(tmp_path):
+def test_kanban_rename_onto_a_notes_only_project_is_refused_without_overwriting(tmp_path):
     storage.kanban_create("JobSearch", ["To Do", "Done"])
     storage.note_write("JobSearch", "old-note", "from JobSearch", create=True)
-    (tmp_path / "notes" / "CareerSearch").mkdir(parents=True)
-    (tmp_path / "notes" / "CareerSearch" / "existing.md").write_text("pre-existing content")
+    storage.note_write("CareerSearch", "existing", "pre-existing content", create=True)
 
     result = storage.kanban_rename("JobSearch", "CareerSearch")
-    assert "couldn't move" in result.lower()
-    assert "merge them manually" in result.lower()
-    # nothing got clobbered: the original notes dir is untouched
-    assert (tmp_path / "notes" / "JobSearch" / "old-note.md").exists()
+    assert "already exists" in result.lower()
+    # nothing got clobbered
+    assert (tmp_path / "projects" / "JobSearch" / "notes" / "old-note.md").exists()
     assert (
-        tmp_path / "notes" / "CareerSearch" / "existing.md"
-    ).read_text() == "pre-existing content"
+        (tmp_path / "projects" / "CareerSearch" / "notes" / "existing.md")
+        .read_text()
+        .endswith("pre-existing content\n")
+    )
+
+
+def test_kanban_rename_keeps_the_folder(tmp_path):
+    storage.kanban_create("Work/Old", ["To Do"])
+    assert "Renamed" in storage.kanban_rename("Work/Old", "New")
+    assert (tmp_path / "projects" / "Work" / "New" / "board.md").is_file()
+    assert not (tmp_path / "projects" / "Work" / "Old").exists()
+
+
+def test_kanban_rename_rejects_a_path_as_new_name():
+    storage.kanban_create("a", ["To Do"])
+    assert "project_move" in storage.kanban_rename("a", "Work/a")
 
 
 # ── kanban_search ─────────────────────────────────────────────────────────────
@@ -639,12 +654,12 @@ def test_kanban_search_case_insensitive():
 def test_note_write_creates_note(tmp_path):
     result = storage.note_write("p", "architecture", "We use hexagonal architecture.", create=True)
     assert "Written" in result
-    assert (tmp_path / "notes" / "p" / "architecture.md").exists()
+    assert (tmp_path / "projects" / "p" / "notes" / "architecture.md").exists()
 
 
 def test_note_write_includes_title_and_date(tmp_path):
     storage.note_write("p", "arch", "Some content", create=True)
-    content = (tmp_path / "notes" / "p" / "arch.md").read_text()
+    content = (tmp_path / "projects" / "p" / "notes" / "arch.md").read_text()
     assert content.startswith("# arch\n")
     assert "_Updated:" in content
 
@@ -652,7 +667,7 @@ def test_note_write_includes_title_and_date(tmp_path):
 def test_note_write_overwrites_existing_note(tmp_path):
     storage.note_write("p", "arch", "v1", create=True)
     storage.note_write("p", "arch", "v2", create=True)
-    content = (tmp_path / "notes" / "p" / "arch.md").read_text()
+    content = (tmp_path / "projects" / "p" / "notes" / "arch.md").read_text()
     assert "v2" in content
     assert "v1" not in content
 
@@ -699,7 +714,7 @@ def test_note_delete_removes_note(tmp_path):
     storage.note_write("p", "key", "content", create=True)
     result = storage.note_delete("p", "key")
     assert "Deleted" in result
-    assert not (tmp_path / "notes" / "p" / "key.md").exists()
+    assert not (tmp_path / "projects" / "p" / "notes" / "key.md").exists()
 
 
 def test_note_delete_not_found_returns_error():
@@ -712,7 +727,7 @@ def test_note_write_applies_markdownlint_autofix(tmp_path, monkeypatch):
         storage.markdownlint, "fix_content", lambda body: (body.replace("v1", "FIXED"), [])
     )
     storage.note_write("p", "arch", "v1", create=True)
-    content = (tmp_path / "notes" / "p" / "arch.md").read_text()
+    content = (tmp_path / "projects" / "p" / "notes" / "arch.md").read_text()
     assert "FIXED" in content
 
 
@@ -743,24 +758,24 @@ def test_kanban_create_then_add_with_different_casing_use_same_board(tmp_path):
     storage.kanban_create("JobSearch", ["To Do", "Done"])
     result = storage.kanban_add("job-search", "To Do", "Apply somewhere")
     assert "Apply somewhere" in result
-    # only one board file exists on disk, reused under its original spelling
-    assert list((tmp_path / "kanban").glob("*.md")) == [tmp_path / "kanban" / "JobSearch.md"]
+    # only one project directory exists on disk, reused under its original spelling
+    assert [p.name for p in (tmp_path / "projects").iterdir()] == ["JobSearch"]
 
 
-def test_notes_and_decisions_share_first_seen_directory(tmp_path):
+def test_notes_and_decisions_share_the_project_directory(tmp_path):
     storage.kanban_create("JobSearch", ["To Do", "Done"])
     storage.note_write("job-search", "interview-baseline", "Reusable notes")
-    # a later call under any casing variant reuses the same notes dir instead
-    # of creating a sibling
+    # a later call under any casing variant reuses the same project directory
+    # instead of creating a sibling
     storage.note_write("JobSearch", "second-note", "More content")
     storage.decision_log("Job Search", "Applied to Acme", "Good fit")
     storage.decision_log("job-search", "Applied to Beta", "Also good fit")
-    assert list((tmp_path / "notes").iterdir()) == [tmp_path / "notes" / "job-search"]
-    assert {p.stem for p in (tmp_path / "notes" / "job-search").glob("*.md")} == {
+    assert [p.name for p in (tmp_path / "projects").iterdir()] == ["JobSearch"]
+    assert {p.stem for p in (tmp_path / "projects" / "JobSearch" / "notes").glob("*.md")} == {
         "interview-baseline",
         "second-note",
     }
-    assert list((tmp_path / "decisions").iterdir()) == [tmp_path / "decisions" / "Job Search"]
+    assert len(list((tmp_path / "projects" / "JobSearch" / "decisions").glob("*.md"))) == 1
 
 
 def test_kanban_list_shows_first_seen_display_name(tmp_path):
@@ -820,9 +835,7 @@ def test_project_list_reports_board_notes_decisions_counts():
     storage.note_write("p", "arch", "content", create=True)
     storage.decision_log("p", "D", "R")
     result = storage.project_list()
-    assert "board: yes" in result
-    assert "notes: 1" in result
-    assert "decisions: 1" in result
+    assert "board + notes (1) + decisions (1)" in result
 
 
 def test_project_list_flags_collision(tmp_path):
@@ -830,9 +843,9 @@ def test_project_list_flags_collision(tmp_path):
     # that normalize to the same slug (the code itself no longer produces this,
     # since every write now slugifies — this is what project_list must catch
     # for data that predates that change).
-    (tmp_path / "notes" / "JobSearch").mkdir(parents=True)
-    (tmp_path / "notes" / "job-search").mkdir(parents=True)
-    (tmp_path / "notes" / "job-search" / "interview-baseline.md").write_text("content")
+    (tmp_path / "projects" / "JobSearch" / "notes").mkdir(parents=True)
+    (tmp_path / "projects" / "job-search" / "notes").mkdir(parents=True)
+    (tmp_path / "projects" / "job-search" / "notes" / "interview-baseline.md").write_text("content")
     result = storage.project_list()
     assert "collides" in result.lower()
 
@@ -852,7 +865,7 @@ def test_kanban_add_with_notes_succeeds_when_notes_exist(tmp_path):
     storage.note_write("p", "interview-baseline", "content", create=True)
     result = storage.kanban_add("p", "To Do", "Acme interview", notes=["interview-baseline"])
     assert "Acme interview" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
     assert "interview-baseline" in content
 
 
@@ -876,8 +889,8 @@ def test_kanban_update_card_with_existing_note_succeeds(tmp_path):
     storage.note_write("p", "arch", "content", create=True)
     result = storage.kanban_update_card("p", "Card", notes=["arch"])
     assert "Updated" in result
-    content = (tmp_path / "kanban" / "p.md").read_text()
-    assert "notes: [[arch](../notes/p/arch.md)]" in content
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
+    assert "notes: [[arch](notes/arch.md)]" in content
 
 
 def test_kanban_notes_render_as_relative_link(tmp_path):
@@ -885,11 +898,13 @@ def test_kanban_notes_render_as_relative_link(tmp_path):
     storage.note_write("p", "arch", "content", create=True)
     storage.kanban_add("p", "To Do", "Card", notes=["arch"])
 
-    content = (tmp_path / "kanban" / "p.md").read_text()
-    assert "[arch](../notes/p/arch.md)" in content
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
+    assert "[arch](notes/arch.md)" in content
     # the link resolves to the note that actually exists
-    board = tmp_path / "kanban" / "p.md"
-    assert (board.parent / "../notes/p/arch.md").resolve() == (tmp_path / "notes" / "p" / "arch.md")
+    board = tmp_path / "projects" / "p" / "board.md"
+    assert (board.parent / "notes/arch.md").resolve() == (
+        tmp_path / "projects" / "p" / "notes" / "arch.md"
+    )
 
 
 def test_kanban_notes_survive_a_round_trip(tmp_path):
@@ -906,8 +921,8 @@ def test_kanban_notes_survive_a_round_trip(tmp_path):
     card = next(c for c in columns[0].cards if c.title == "Card")
     assert card.notes == ["arch"]
 
-    content = (tmp_path / "kanban" / "p.md").read_text()
-    assert content.count("[arch](../notes/p/arch.md)") == 1
+    content = (tmp_path / "projects" / "p" / "board.md").read_text()
+    assert content.count("[arch](notes/arch.md)") == 1
     assert "../notes/p/../notes" not in content  # not re-wrapped
 
 
@@ -917,7 +932,7 @@ def test_kanban_legacy_bare_note_keys_still_parse(tmp_path):
     the link silently."""
     storage.kanban_create("p", ["To Do"])
     storage.note_write("p", "arch", "content", create=True)
-    board = tmp_path / "kanban" / "p.md"
+    board = tmp_path / "projects" / "p" / "board.md"
     board.write_text("# p\n\n## To Do\n\n### Card\n\n  - notes: [arch]\n\n")
 
     _title, columns = storage._load_board("p")
@@ -925,7 +940,7 @@ def test_kanban_legacy_bare_note_keys_still_parse(tmp_path):
 
     # and the next write upgrades it to a link rather than mangling it
     storage.kanban_add("p", "To Do", "Unrelated")
-    assert "[arch](../notes/p/arch.md)" in board.read_text()
+    assert "[arch](notes/arch.md)" in board.read_text()
 
 
 def test_kanban_multiple_notes_round_trip(tmp_path):

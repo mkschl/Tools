@@ -41,6 +41,10 @@ _SLOW_OPERATION_TIMEOUT_SECONDS = 25.0
 # calls touching different projects still run fully concurrently.
 _project_locks: dict[str, asyncio.Lock] = {}
 
+# Standalone notes (empty project) belong to no project but are written by the
+# same read-modify-write calls, so they get one lock of their own.
+_STANDALONE_LOCK = "\0standalone-notes"
+
 
 def _locks_for(projects: str | tuple[str, ...] | None) -> list[asyncio.Lock]:
     """Resolve one or more project names to their locks, deduplicated by
@@ -57,7 +61,7 @@ def _locks_for(projects: str | tuple[str, ...] | None) -> list[asyncio.Lock]:
     if not projects:
         return []
     names = (projects,) if isinstance(projects, str) else projects
-    slugs = sorted({storage._slugify(p) for p in names if p})
+    slugs = sorted({p if p == _STANDALONE_LOCK else storage._project_slug(p) for p in names if p})
     return [_project_locks.setdefault(slug, asyncio.Lock()) for slug in slugs]
 
 
@@ -117,9 +121,16 @@ async def _run(
     is still in flight, reintroducing the exact race this lock exists to
     prevent.
     """
-    task = asyncio.create_task(_call_in_thread(func, args, _locks_for(project)))
+    try:
+        locks = _locks_for(project)
+    except storage.ProjectPathError as exc:
+        return str(exc)
+    task = asyncio.create_task(_call_in_thread(func, args, locks))
     try:
         return await asyncio.wait_for(asyncio.shield(task), timeout=_SLOW_OPERATION_TIMEOUT_SECONDS)
+    except storage.ProjectPathError as exc:
+        # An invalid or conflicting project path is a caller error, not a crash.
+        return str(exc)
     except TimeoutError:
         task.add_done_callback(_log_late_completion)
         return (
@@ -138,7 +149,8 @@ async def decision_log(project: str, summary: str, reasoning: str, create: bool 
     unless create=true — call project_list first if unsure whether it exists.
 
     Args:
-        project: Project name (used as directory name, e.g. 'myapp').
+        project: Project name or path (e.g. 'myapp' or 'Work/myapp'; at most
+            AGENT_MEMORY_MAX_DEPTH levels, default 5).
         summary: Short one-line description of the decision.
         reasoning: Full explanation of why this decision was made.
         create: Pass true to create a new project if it doesn't exist yet.
@@ -171,7 +183,7 @@ async def kanban_create(project: str, columns: str) -> str:
     """Create a new kanban board with the given columns.
 
     Args:
-        project: Project name (used as the board file name).
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp' (its board is board.md).
         columns: Comma-separated list of column names, e.g. 'To Do, In Progress, Done'.
     """
     column_list = [c.strip() for c in columns.split(",") if c.strip()]
@@ -185,7 +197,7 @@ async def kanban_add_column(project: str, column: str, after: str = "") -> str:
     """Add a new empty column to a kanban board, or move an existing one.
 
     Args:
-        project: Project name (used as the board file name).
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp' (its board is board.md).
         column: Name of the column to add (or move).
         after: Optional name of the column to insert after. If omitted, appends to the end.
                If the column already exists, it is moved to this position.
@@ -210,7 +222,7 @@ async def kanban_add(
     """Add a card to a kanban column.
 
     Args:
-        project: Project name (used as the board file name).
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp' (its board is board.md).
         column: Column to add the card to (case-insensitive).
         title: Card title.
         description: Optional body text for the card.
@@ -247,7 +259,7 @@ async def kanban_move(project: str, title: str, to_column: str) -> str:
     """Move a card to a different column.
 
     Args:
-        project: Project name.
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp'.
         title: Card title to move (case-insensitive match).
         to_column: Destination column name (case-insensitive).
     """
@@ -261,7 +273,7 @@ async def kanban_delete_card(project: str, title: str) -> str:
     """Delete a card from the board.
 
     Args:
-        project: Project name.
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp'.
         title: Card title to delete (case-insensitive match).
     """
     result = await _run(storage.kanban_delete_card, project, title, project=project)
@@ -274,7 +286,7 @@ async def kanban_delete_column(project: str, column: str) -> str:
     """Delete an empty column from the board. Fails if the column still has cards.
 
     Args:
-        project: Project name.
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp'.
         column: Column name to delete (case-insensitive match).
     """
     result = await _run(storage.kanban_delete_column, project, column, project=project)
@@ -298,7 +310,7 @@ async def kanban_update_card(
     Pass an empty string to clear a field (due, tags, priority, steps, notes, description).
 
     Args:
-        project: Project name.
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp'.
         title: Card title to update (case-insensitive match).
         new_title: Rename the card.
         description: New body text.
@@ -342,7 +354,7 @@ async def kanban_read(project: str) -> str:
     """Return the full kanban board for a project.
 
     Args:
-        project: Project name.
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp'.
     """
     # No project lock — see decision_read's comment above.
     result = await _run(storage.kanban_read, project)
@@ -364,11 +376,14 @@ async def kanban_delete(project: str) -> str:
 
 @mcp.tool()
 async def kanban_rename(project: str, new_name: str) -> str:
-    """Rename a kanban board.
+    """Rename a project (board, notes and decisions) inside its folder.
+
+    new_name is the new last segment only. To move a project to another
+    folder, use project_move.
 
     Args:
-        project: Current project name.
-        new_name: New project name.
+        project: Current project name or path.
+        new_name: New name of the project (a single name, no '/').
     """
     # Locks both names: a concurrent write to `new_name`, or a second
     # concurrent rename targeting the same `new_name` from a different
@@ -397,66 +412,73 @@ async def kanban_search(query: str, project: str = "") -> str:
 
 @mcp.tool()
 async def note_write(project: str, key: str, content: str, create: bool = False) -> str:
-    """Write (create or overwrite) a note for a project.
+    """Write (create or overwrite) a note for a project, or a standalone note.
 
     Project names are normalized (casing/separators ignored) so 'JobSearch' and
     'job-search' resolve to the same project. Fails on an unknown project name
     unless create=true — call project_list first if unsure whether it exists.
 
     Args:
-        project: Project name.
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp'. Pass an
+            empty string for a standalone note that belongs to no project.
         key: Note identifier, e.g. 'architecture', 'env-setup', 'api-endpoints'.
         content: Full text content of the note.
         create: Pass true to create a new project if it doesn't exist yet.
     """
-    result = await _run(storage.note_write, project, key, content, create, project=project)
-    log.info("note_write", project=project, key=key)
+    result = await _run(
+        storage.note_write, project, key, content, create, project=project or _STANDALONE_LOCK
+    )
+    log.info("note_write", project=project or "(standalone)", key=key)
     return result
 
 
 @mcp.tool()
 async def note_read(project: str, key: str) -> str:
-    """Read a note for a project.
+    """Read a note of a project, or a standalone note.
 
     Args:
-        project: Project name.
+        project: Project name or path. Empty string reads a standalone note.
         key: Note identifier.
     """
     # No project lock — see decision_read's comment above.
     result = await _run(storage.note_read, project, key)
-    log.info("note_read", project=project, key=key)
+    log.info("note_read", project=project or "(standalone)", key=key)
     return result
 
 
 @mcp.tool()
 async def note_list(project: str) -> str:
-    """List all note keys for a project.
+    """List all note keys of a project, or the standalone notes.
 
     Args:
-        project: Project name.
+        project: Project name or path. Empty string lists the standalone notes.
     """
     # No project lock — see decision_read's comment above.
     result = await _run(storage.note_list, project)
-    log.info("note_list", project=project)
+    log.info("note_list", project=project or "(standalone)")
     return result
 
 
 @mcp.tool()
 async def note_delete(project: str, key: str) -> str:
-    """Delete a note for a project.
+    """Delete a note of a project, or a standalone note.
 
     Args:
-        project: Project name.
+        project: Project name or path. Empty string deletes a standalone note.
         key: Note identifier to delete.
     """
-    result = await _run(storage.note_delete, project, key, project=project)
-    log.info("note_delete", project=project, key=key)
+    result = await _run(storage.note_delete, project, key, project=project or _STANDALONE_LOCK)
+    log.info("note_delete", project=project or "(standalone)", key=key)
     return result
 
 
 @mcp.tool()
-async def project_list() -> str:
+async def project_list(folder: str = "") -> str:
     """List every project across boards, notes, and decisions, with counts.
+
+    Projects can live in folders ('Work/AzureAIConsultantTraining'); the
+    output is a tree grouped by folder. Pass `folder` to list only what is
+    below that folder.
 
     Call this before writing to a project name you're not certain already
     exists — it groups near-duplicate spellings (e.g. 'JobSearch' vs
@@ -464,8 +486,43 @@ async def project_list() -> str:
     slip doesn't silently create a sibling project instead of finding the
     existing one.
     """
-    result = await _run(storage.project_list)
-    log.info("project_list")
+    result = await _run(storage.project_list, folder)
+    log.info("project_list", folder=folder or "*")
+    return result
+
+
+@mcp.tool()
+async def folder_list() -> str:
+    """List every folder with the number of projects below it.
+
+    Useful for choosing a target path before a project_move.
+    """
+    result = await _run(storage.folder_list)
+    log.info("folder_list")
+    return result
+
+
+@mcp.tool()
+async def project_move(source: str, target: str, dry_run: bool = True) -> str:
+    """Move a project (board, notes and decisions together) to another path.
+
+    Paths are 1 to AGENT_MEMORY_MAX_DEPTH (default 5) segments separated by
+    '/', for example 'Work/MyProject'; segments of a nested path may contain
+    letters, digits, '.', '_' and '-'. Folders are created as needed and
+    removed again when they become empty. A path is either a folder or a
+    project, never both. Fails if the target already exists. The move is one
+    directory rename, so it either happens completely or not at all.
+
+    Dry run is the default: it only lists what would move (note keys and
+    decision dates, never their contents). Pass dry_run=false to move.
+
+    Args:
+        source: Current project name or path.
+        target: New project path.
+        dry_run: Only report what would be moved (default true).
+    """
+    result = await _run(storage.project_move, source, target, dry_run, project=(source, target))
+    log.info("project_move", source=source, target=target, dry_run=dry_run)
     return result
 
 
@@ -475,10 +532,11 @@ async def project_summary(project: str, days: int = 7) -> str:
 
     This is the documented default way to open a project — it returns the
     board, decisions, and notes together in one call, rather than needing
-    three separate lookups.
+    three separate lookups. For a folder path it returns the summaries of
+    the projects below it.
 
     Args:
-        project: Project name.
+        project: Project name or path, e.g. 'myapp' or 'Work/myapp'.
         days: How many days back to include decisions (default 7).
     """
     # No project lock — see decision_read's comment above.
@@ -490,6 +548,10 @@ async def project_summary(project: str, days: int = 7) -> str:
 def main() -> None:
     structlog.configure(processors=[structlog.dev.ConsoleRenderer()])
     log.info("starting", storage=str(storage.STORAGE_ROOT))
+    try:
+        storage._assert_current_layout()
+    except storage.LegacyLayoutError as exc:
+        log.warning("legacy_layout", detail=str(exc))
     mcp.run()
 
 

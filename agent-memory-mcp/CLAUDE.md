@@ -41,7 +41,7 @@ Tests live in `tests/test_storage.py` and cover all storage functions using
 
 `server.py`'s individual `@mcp.tool()` wrappers (the thin storage-call +
 `log.info` glue) are not unit-tested — verify those by registering in
-MCPGateway and calling tools via Claude Code or lmstudio-code-cli. The one
+MCPGateway and calling tools via Claude Code. The one
 piece of real logic in `server.py`, the `_run` thread-offloading/timeout
 wrapper (see Architecture below), does have its own tests in
 `tests/test_server.py`, run with plain `asyncio.run()` — no pytest-asyncio
@@ -50,7 +50,7 @@ plugin needed.
 ## Purpose
 
 A minimal MCP server that provides shared persistent memory across all tools
-connected to MCPGateway (Claude Code, lmstudio-code-cli, and future tools).
+connected to MCPGateway (Claude Code and future tools).
 It is not an agent. It has no autonomous behaviour. It is a neutral persistence
 layer with three concepts: decisions, kanban boards, and queries.
 
@@ -467,5 +467,5 @@ Set it in the MCPGateway entry for this server, e.g.:
 - `structlog` for logging
 - `ruff` for linting and formatting
 - No sandboxing — the server runs with full filesystem access under the user
-  account, consistent with MCPGateway and lmstudio-code-cli
+  account, consistent with MCPGateway
 - Follows the same repo structure as other tools in this tools repository

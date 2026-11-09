@@ -4,7 +4,6 @@
         "${workspaceFolder}/agent-memory-mcp",
         "${workspaceFolder}/cad-photo-mcp",
         "${workspaceFolder}/kubectl-mcp",
-        "${workspaceFolder}/lmstudio-code-cli",
         "${workspaceFolder}/macos-diag-mcp",
         "${workspaceFolder}/parallels-mcp",
         "${workspaceFolder}/threemf-paint-mcp",

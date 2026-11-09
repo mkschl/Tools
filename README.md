@@ -1,7 +1,7 @@
 # Tools
 
-A collection of small, focused [MCP](https://modelcontextprotocol.io) servers and a terminal coding
-agent, built for day-to-day use with local LLMs and Claude Code. Each subproject is an independent
+A collection of small, focused [MCP](https://modelcontextprotocol.io) servers, built for
+day-to-day use with local LLMs and Claude Code. Each subproject is an independent
 Python package with its own `pyproject.toml`, `.venv`, and test suite — this repo just groups them
 together and shares an editor/type-checking environment (see [Multi-Python-Project layout](#layout)
 below).
@@ -10,7 +10,6 @@ below).
 
 | Project | Description |
 | --- | --- |
-| [`lmstudio-code-cli`](lmstudio-code-cli/) | Terminal-based coding agent powered by LM Studio, with theming, MCP gateway integration, and file attachments |
 | [`agent-memory-mcp`](agent-memory-mcp/) | Shared persistent memory MCP server (decision log, kanban boards, notes) for agent workflows |
 | [`cad-photo-mcp`](cad-photo-mcp/) | MCP server for measuring parts in calibrated photos and overlaying OpenSCAD models on them at true scale |
 | [`kubectl-mcp`](kubectl-mcp/) | Generic MCP server exposing `kubectl` cluster operations as tools |
